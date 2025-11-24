@@ -273,7 +273,7 @@ export const Dashboard: React.FC = () => {
 
       <section>
         <div className="flex justify-between items-center mb-4 px-1">
-          <h2 className="text-lg text-slate-800 font-serif font-bold">New Arrivals</h2>
+          <h2 className="text-lg text-slate-800 font-serif font-bold">Recent Upload</h2>
           <Link to="/closet" className="text-sm font-bold text-orange-500 hover:text-orange-600">
             See All
           </Link>
