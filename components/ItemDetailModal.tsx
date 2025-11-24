@@ -49,9 +49,9 @@ export const ItemDetailModal: React.FC<Props> = ({ item, onClose, onToggleArchiv
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
       <div className="bg-white rounded-[2.5rem] w-full max-w-md overflow-hidden shadow-2xl relative flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-300">
         
-        {/* Image Header */}
-        <div className="relative w-full aspect-[3/4] bg-orange-50 shrink-0">
-            <img src={formData.image || item.image} className="w-full h-full object-cover" alt="Detail" />
+        {/* Image Header - Reduced height and used object-contain */}
+        <div className="relative w-full h-72 bg-orange-50 shrink-0">
+            <img src={formData.image || item.image} className="w-full h-full object-contain p-4" alt="Detail" />
             
             <button 
                 onClick={onClose}
@@ -214,4 +214,4 @@ export const ItemDetailModal: React.FC<Props> = ({ item, onClose, onToggleArchiv
       </div>
     </div>
   );
-}
+};
