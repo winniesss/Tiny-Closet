@@ -148,22 +148,35 @@ export const ItemDetailModal: React.FC<Props> = ({ item, onClose, onToggleArchiv
                         </div>
                      </div>
 
-                     <div className="flex gap-3 mt-6 pt-4 border-t border-slate-50">
+                     <div className="flex gap-3 mt-6 pt-4 border-t border-slate-50 flex-wrap">
                         <button 
                             onClick={handleDelete}
-                            className="p-4 bg-red-50 text-red-500 rounded-2xl hover:bg-red-100 transition-colors"
+                            className="p-4 bg-red-50 text-red-500 rounded-full hover:bg-red-100 transition-colors"
+                            title="Delete"
                         >
                             <Trash2 size={20} />
                         </button>
+
+                        <button 
+                            onClick={() => {
+                                onToggleArchive(item);
+                                setIsEditing(false);
+                            }}
+                            className={`p-4 rounded-full transition-colors ${item.isArchived ? 'bg-sky-100 text-sky-600' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
+                            title={item.isArchived ? "Restore" : "Archive"}
+                        >
+                             {item.isArchived ? <RotateCcw size={20} /> : <Archive size={20} />}
+                        </button>
+
                         <button 
                             onClick={() => setIsEditing(false)}
-                            className="flex-1 py-4 bg-slate-100 text-slate-500 font-bold rounded-2xl hover:bg-slate-200 transition-colors"
+                            className="flex-1 py-4 bg-slate-100 text-slate-500 font-bold rounded-full hover:bg-slate-200 transition-colors"
                         >
                             Cancel
                         </button>
                         <button 
                             onClick={handleSave}
-                            className="flex-1 py-4 bg-sky-400 text-white font-bold rounded-2xl hover:bg-sky-500 shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2"
+                            className="flex-1 py-4 bg-sky-400 text-white font-bold rounded-full hover:bg-sky-500 shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2"
                         >
                             <Save size={20} /> Save
                         </button>
@@ -195,7 +208,7 @@ export const ItemDetailModal: React.FC<Props> = ({ item, onClose, onToggleArchiv
                     <div className="space-y-3">
                         <button 
                             onClick={() => onToggleArchive(item)}
-                            className={`w-full py-4 rounded-2xl font-bold flex items-center justify-center gap-2 transition-colors ${
+                            className={`w-full py-4 rounded-full font-bold flex items-center justify-center gap-2 transition-colors ${
                                 item.isArchived 
                                 ? 'bg-sky-100 text-sky-600 hover:bg-sky-200' 
                                 : 'bg-slate-100 text-slate-500 hover:bg-red-50 hover:text-red-500'

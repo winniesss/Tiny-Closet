@@ -21,7 +21,7 @@ export const Navbar: React.FC = () => {
         </NavLink>
         <NavLink to="/add" className={({ isActive }) => 
           clsx(
-            "flex items-center justify-center w-14 h-14 rounded-full text-white shadow-lg transform transition-transform active:scale-95 mb-4 mx-2 border-4 border-white",
+            "flex items-center justify-center w-14 h-14 shrink-0 rounded-full text-white shadow-lg transform transition-transform active:scale-95 mb-4 mx-2 border-4 border-white aspect-square",
             isActive ? "bg-orange-400" : "bg-orange-400"
           )
         }>

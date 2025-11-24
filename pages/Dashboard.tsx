@@ -76,7 +76,9 @@ const parseSizeToMaxMonths = (size: string): number | null => {
 };
 
 export const Dashboard: React.FC = () => {
-  const [suggestion, setSuggestion] = useState<ClothingItem[]>([]);
+  const [suggestion1, setSuggestion1] = useState<ClothingItem[]>([]);
+  const [suggestion2, setSuggestion2] = useState<ClothingItem[]>([]);
+  const [activeOption, setActiveOption] = useState<1 | 2>(1);
   const [justArchivedCount, setJustArchivedCount] = useState(0);
   const [selectedItem, setSelectedItem] = useState<ClothingItem | null>(null);
   
@@ -101,26 +103,50 @@ export const Dashboard: React.FC = () => {
       item.seasons.includes(targetSeason) || item.seasons.includes(Season.All)
     );
 
-    const tops = suitable.filter(i => i.category === Category.Top);
-    const bottoms = suitable.filter(i => i.category === Category.Bottom);
-    const fullBody = suitable.filter(i => i.category === Category.FullBody);
-    const outerwear = suitable.filter(i => i.category === Category.Outerwear);
+    const generateOutfit = (attempt: number) => {
+        // Simple shuffle for variety
+        const shuffled = [...suitable].sort(() => Math.random() - 0.5);
 
-    const outfit: ClothingItem[] = [];
+        const tops = shuffled.filter(i => i.category === Category.Top);
+        const bottoms = shuffled.filter(i => i.category === Category.Bottom);
+        const fullBody = shuffled.filter(i => i.category === Category.FullBody);
+        const outerwear = shuffled.filter(i => i.category === Category.Outerwear);
+        const shoes = shuffled.filter(i => i.category === Category.Shoes);
 
-    if (fullBody.length > 0) {
-      outfit.push(fullBody[Math.floor(Math.random() * fullBody.length)]);
-    } else if (tops.length > 0 && bottoms.length > 0) {
-      outfit.push(tops[Math.floor(Math.random() * tops.length)]);
-      outfit.push(bottoms[Math.floor(Math.random() * bottoms.length)]);
-    }
+        const outfit: ClothingItem[] = [];
 
-    if (temp < 18 && outerwear.length > 0) {
-      outfit.push(outerwear[Math.floor(Math.random() * outerwear.length)]);
-    }
+        // 50/50 chance to prefer full body if available, or force variety based on attempt
+        const useFullBody = fullBody.length > 0 && (Math.random() > 0.5 || (attempt === 2 && tops.length === 0));
 
-    setSuggestion(outfit);
+        if (useFullBody) {
+             outfit.push(fullBody[0]);
+        } else if (tops.length > 0 && bottoms.length > 0) {
+             outfit.push(tops[0]);
+             outfit.push(bottoms[0]);
+        } else if (fullBody.length > 0) {
+             outfit.push(fullBody[0]);
+        }
+
+        // Add outerwear if cold
+        if (temp < 18 && outerwear.length > 0) {
+             outfit.push(outerwear[0]);
+        }
+        
+        // Add shoes occasionally or logic
+        if (shoes.length > 0) {
+            outfit.push(shoes[0]);
+        }
+
+        return outfit;
+    };
+
+    setSuggestion1(generateOutfit(1));
+    // Generate a second one, hopefully different due to random shuffle
+    setSuggestion2(generateOutfit(2));
+    
   }, [allItems]);
+
+  const activeSuggestion = activeOption === 1 ? suggestion1 : suggestion2;
 
   // Identify outgrown items
   const outgrownItems = allItems?.filter(item => {
@@ -183,8 +209,23 @@ export const Dashboard: React.FC = () => {
 
       <section className="mb-10">
         <div className="flex justify-between items-center mb-4 px-1">
-          <h2 className="text-lg text-slate-800 font-serif font-bold">Today's Outfit</h2>
-          <span className="text-xs font-bold text-sky-500 bg-sky-100 px-3 py-1 rounded-full">AUTO</span>
+          <div className="flex items-center gap-4">
+              <h2 className="text-lg text-slate-800 font-serif font-bold">Today's Outfit</h2>
+              <div className="flex bg-white rounded-full p-1 shadow-sm border border-slate-100">
+                  <button 
+                    onClick={() => setActiveOption(1)}
+                    className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${activeOption === 1 ? 'bg-sky-400 text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                  >
+                      Option 1
+                  </button>
+                  <button 
+                    onClick={() => setActiveOption(2)}
+                    className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${activeOption === 2 ? 'bg-sky-400 text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                  >
+                      Option 2
+                  </button>
+              </div>
+          </div>
         </div>
         
         {(!allItems || allItems.length === 0) ? (
@@ -197,11 +238,11 @@ export const Dashboard: React.FC = () => {
               Add Clothes
             </Link>
           </div>
-        ) : suggestion.length > 0 ? (
-          <div className="grid grid-cols-2 gap-4">
-            {suggestion.map((item, i) => (
+        ) : activeSuggestion.length > 0 ? (
+          <div className="grid grid-cols-2 gap-4 animate-in fade-in slide-in-from-bottom-2 duration-300" key={activeOption}>
+            {activeSuggestion.map((item, i) => (
               <div 
-                key={item.id} 
+                key={`${item.id}-${i}`} 
                 onClick={() => setSelectedItem(item)}
                 className={`group relative bg-white rounded-[2rem] p-3 shadow-sm border border-slate-50 cursor-pointer transition-transform active:scale-95 ${i % 2 !== 0 ? 'mt-8' : ''}`}
               >
@@ -217,7 +258,7 @@ export const Dashboard: React.FC = () => {
           </div>
         ) : (
           <div className="p-6 rounded-[2rem] bg-orange-100 text-orange-800 font-medium text-center">
-            No outfit matches found!
+            No matching items for this weather!
           </div>
         )}
       </section>
