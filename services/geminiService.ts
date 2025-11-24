@@ -6,7 +6,7 @@ const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 const itemSchema: Schema = {
   type: Type.OBJECT,
   properties: {
-    brand: { type: Type.STRING, description: "Brand name if visible, or 'Unknown'" },
+    brand: { type: Type.STRING, description: "Brand name. If this is an order screenshot, extract the brand name from the text." },
     sizeLabel: { type: Type.STRING, description: "Size on tag (e.g., 2T, 6M, 5Y), or estimate" },
     color: { type: Type.STRING, description: "Primary color of the item" },
     category: { 
@@ -26,11 +26,11 @@ const itemSchema: Schema = {
       items: { type: Type.STRING, enum: [Season.Spring, Season.Summer, Season.Fall, Season.Winter, Season.All] },
       description: "Suitable seasons for this item"
     },
-    description: { type: Type.STRING, description: "Short description (e.g., 'Blue dinosaur t-shirt')" },
+    description: { type: Type.STRING, description: "Detailed product name or description. IMPORTANT: If this is an order screenshot, extract the EXACT product text found near the item." },
     box_2d: {
       type: Type.ARRAY,
       items: { type: Type.INTEGER },
-      description: "Bounding box [ymin, xmin, ymax, xmax] in 0-1000 scale of the item in the image."
+      description: "EXTREMELY TIGHT bounding box [ymin, xmin, ymax, xmax] (0-1000) around the clothing item PIXELS only. STRICTLY EXCLUDE the white container box, text, prices, buttons, or UI elements."
     }
   },
   required: ["category", "color", "seasons", "description"],
@@ -66,9 +66,9 @@ const cropImage = (base64: string, box: number[]): Promise<string> => {
       const boxH = ((ymax - ymin) / 1000) * h;
       const boxW = ((xmax - xmin) / 1000) * w;
 
-      // Add a small padding (5%) to the crop so it's not too tight
-      const paddingX = boxW * 0.05;
-      const paddingY = boxH * 0.05;
+      // No padding, ensuring tight crop on the product
+      const paddingX = 0;
+      const paddingY = 0;
 
       const finalX = Math.max(0, x - paddingX);
       const finalY = Math.max(0, y - paddingY);
@@ -81,6 +81,14 @@ const cropImage = (base64: string, box: number[]): Promise<string> => {
       
       const ctx = canvas.getContext('2d');
       if (ctx) {
+        // High quality scaling
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+
+        // Fill white background first to handle transparent PNGs turning black
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, finalW, finalH);
+        
         ctx.drawImage(img, finalX, finalY, finalW, finalH, 0, 0, finalW, finalH);
         resolve(canvas.toDataURL('image/jpeg'));
       } else {
@@ -108,14 +116,14 @@ export const analyzeClothingImage = async (base64Image: string): Promise<any[]> 
             }
           },
           {
-            text: "Analyze this image. It is either a photo of clothing or a screenshot of an order (which may contain multiple items). Identify ALL distinct clothing items. IMPORTANT: For every item, provide the bounding box (box_2d) so we can crop the specific item image."
+            text: "Analyze this image. It is likely a screenshot of an online order or a photo of multiple items. Identify ALL distinct clothing items. \n\nCRITICAL FOR SCREENSHOTS:\n1. The 'box_2d' must strictly enclose ONLY the garment itself. Do NOT include the square product card, whitespace, price tags, or 'Add to Cart' buttons.\n2. Read the text associated with that thumbnail (product name, size, brand) and populate the 'description', 'sizeLabel', and 'brand' fields.\n\nFor photos: Detect each clothing item with a tight bounding box."
           }
         ]
       },
       config: {
         responseMimeType: "application/json",
         responseSchema: multiItemSchema,
-        systemInstruction: "You are an expert children's fashion assistant. Identify clothing details accurately from photos or screenshots.",
+        systemInstruction: "You are an expert children's fashion assistant. You are excellent at identifying clothing in crowded screenshots and extracting precise, clean product thumbnails.",
       }
     });
 
@@ -149,27 +157,51 @@ export const analyzeClothingImage = async (base64Image: string): Promise<any[]> 
 
 /**
  * Searches for a better product image online using Google Search.
+ * Supports multimodal input (text + image) for better accuracy.
  */
-export const findBetterItemImage = async (brand: string, description: string, color: string): Promise<{imageUrl?: string, sourceUrl?: string} | null> => {
-  const query = `${brand} ${color} ${description} kids clothing product image`;
+export const findBetterItemImage = async (query: string, base64Image?: string): Promise<{imageUrl?: string, sourceUrl?: string} | null> => {
   try {
+    const parts: any[] = [];
+    
+    // If an image is provided, include it in the request to help Gemini "see" what we are looking for
+    if (base64Image) {
+        const cleanBase64 = base64Image.split(',')[1] || base64Image;
+        parts.push({
+            inlineData: {
+                mimeType: "image/jpeg",
+                data: cleanBase64
+            }
+        });
+    }
+
+    parts.push({
+      text: `You are an API that finds product images.
+        User Query: "${query}"
+        
+        Instructions:
+        1. Search Google for this product. Use the provided image (if any) to confirm the visual match (color, pattern).
+        2. Find the best available isolated product image.
+        3. Output a valid JSON object.
+        
+        JSON Format:
+        \`\`\`json
+        {
+          "imageUrl": "https://example.com/image.jpg",
+          "sourceUrl": "https://example.com/product-page"
+        }
+        \`\`\`
+        
+        Rules:
+        - "imageUrl" must be a direct link to the image file if possible, or a high-quality preview URL found in the search results.
+        - "sourceUrl" is the website where you found it.
+        - If you can't find a perfect white-background image, return the best lifestyle image or screenshot you found.
+        - Do NOT explain. ONLY output JSON.`
+    });
+
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
       contents: {
-        parts: [{
-          text: `Perform a Google Search for: "${query}".
-          Look for a high-quality, isolated product image (white background preferred) from a retail site.
-          
-          Extract the most promising image URL found in the search results.
-          
-          Respond with a strict JSON object:
-          {
-            "imageUrl": "THE_IMAGE_URL",
-            "sourceUrl": "THE_SOURCE_PAGE_URL"
-          }
-          
-          If you cannot find a direct image URL in the search results, return null.`
-        }]
+        parts: parts
       },
       config: {
         tools: [{googleSearch: {}}],
@@ -177,10 +209,12 @@ export const findBetterItemImage = async (brand: string, description: string, co
       }
     });
 
-    const text = response.text;
-    console.log("Search response raw:", text); 
+    let text = response.text || '';
     
     if (!text) return null;
+
+    // Clean up markdown code blocks if present
+    text = text.replace(/```json/g, '').replace(/```/g, '').trim();
 
     // Robust JSON extraction using Regex to find the first JSON object
     const jsonMatch = text.match(/\{[\s\S]*\}/);
@@ -193,6 +227,15 @@ export const findBetterItemImage = async (brand: string, description: string, co
         } catch (e) {
             console.warn("JSON parse error", e);
         }
+    }
+    
+    // Fallback: If JSON parsing fails, try to extract a URL directly from text
+    const urlMatch = text.match(/https?:\/\/[^\s"']+\.(?:jpg|jpeg|png|webp)/i);
+    if (urlMatch) {
+        return {
+            imageUrl: urlMatch[0],
+            sourceUrl: ""
+        };
     }
     
     return null;

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Camera, Upload, Loader2, X, ChevronLeft, ChevronRight, Trash2, Sparkles, ExternalLink, AlertTriangle } from 'lucide-react';
+import { Camera, Upload, Loader2, X, ChevronLeft, ChevronRight, Trash2, Sparkles, ExternalLink, AlertTriangle, Search } from 'lucide-react';
 import { analyzeClothingImage, findBetterItemImage } from '../services/geminiService';
 import { db } from '../db';
 import { ClothingItem, Category, Season } from '../types';
@@ -20,11 +20,27 @@ export const AddItem: React.FC = () => {
   const [isSearchingImage, setIsSearchingImage] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [betterImageCandidate, setBetterImageCandidate] = useState<{imageUrl: string, sourceUrl: string} | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
 
+  // Update default search term when item changes
   useEffect(() => {
     setBetterImageCandidate(null);
     setSearchError(null);
-  }, [currentIndex]);
+    if (reviewItems[currentIndex]) {
+        const item = reviewItems[currentIndex];
+        // Clean up the search term to remove duplicates if description contains brand
+        const parts = [
+            item.brand && item.brand !== 'Unknown' ? item.brand : '',
+            item.color || '',
+            item.category || '', // Added category for better search (e.g. "Top", "Shoes")
+            item.description || '',
+            'kids'
+        ];
+        // Filter empty and join
+        const term = parts.filter(p => p).join(' ').trim();
+        setSearchTerm(term);
+    }
+  }, [currentIndex, reviewItems]);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -97,10 +113,8 @@ export const AddItem: React.FC = () => {
   };
 
   const handleFindBetterImage = async () => {
-    const item = reviewItems[currentIndex];
-    
-    if (!item.brand && !item.description) {
-        setSearchError("Please enter a Brand or Description first.");
+    if (!searchTerm.trim()) {
+        setSearchError("Please enter keywords to search.");
         return;
     }
 
@@ -108,8 +122,12 @@ export const AddItem: React.FC = () => {
     setBetterImageCandidate(null);
     setSearchError(null);
 
+    const currentItem = reviewItems[currentIndex];
+
     try {
-      const result = await findBetterItemImage(item.brand || '', item.description || '', item.color || '');
+      // Pass both the search term and the current image (cropped or original) 
+      // to help the AI find the exact visual match.
+      const result = await findBetterItemImage(searchTerm, currentItem.image);
       
       if (result && result.imageUrl) {
         setBetterImageCandidate({
@@ -117,7 +135,7 @@ export const AddItem: React.FC = () => {
             sourceUrl: result.sourceUrl || ''
         });
       } else {
-        setSearchError("Could not find a better image online.");
+        setSearchError("Could not find a better image. Try adding more specific keywords.");
       }
     } catch (error) {
         setSearchError("Connection failed.");
@@ -260,13 +278,27 @@ export const AddItem: React.FC = () => {
         </div>
 
         <div>
+            <div className="mb-2">
+                <label className="block text-xs font-bold text-slate-400 mb-2 ml-1">Search Keywords</label>
+                <div className="relative">
+                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={16} />
+                    <input 
+                        type="text" 
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        className="w-full pl-10 pr-4 py-3 bg-white rounded-xl text-sm font-bold text-slate-600 focus:outline-none focus:ring-2 focus:ring-sky-200 shadow-sm border border-slate-50"
+                        placeholder="e.g. Zara Blue Dino Shirt"
+                    />
+                </div>
+            </div>
+
             <button 
                 onClick={handleFindBetterImage}
                 disabled={isSearchingImage}
-                className="w-full flex items-center justify-center gap-2 py-4 bg-white border-2 border-transparent hover:border-sky-200 text-sky-500 text-sm font-bold rounded-2xl shadow-sm transition-all disabled:opacity-50"
+                className="w-full flex items-center justify-center gap-2 py-4 bg-sky-50 hover:bg-sky-100 text-sky-500 text-sm font-bold rounded-2xl transition-all disabled:opacity-50 border border-sky-100"
             >
                 {isSearchingImage ? <Loader2 size={18} className="animate-spin" /> : <Sparkles size={18} />}
-                {isSearchingImage ? 'Searching...' : 'Find Cleaner Image'}
+                {isSearchingImage ? 'Searching...' : 'Find Online Image'}
             </button>
             
             {searchError && (

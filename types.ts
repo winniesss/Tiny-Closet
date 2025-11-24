@@ -25,6 +25,7 @@ export interface ClothingItem {
   seasons: Season[];
   description?: string;
   dateAdded: number;
+  isArchived?: boolean;
 }
 
 export interface ChildProfile {

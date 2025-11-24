@@ -3,8 +3,9 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
 import { WeatherWidget } from '../components/WeatherWidget';
 import { WeatherData, ClothingItem, Season, Category } from '../types';
-import { Shirt, AlertCircle, Cake } from 'lucide-react';
+import { Shirt, AlertCircle, Cake, Archive, CheckCircle2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { Logo } from '../components/Logo';
 
 // Mock weather for demo purposes
 const MOCK_WEATHER: WeatherData = {
@@ -30,11 +31,56 @@ const calculateAge = (birthDateString: string): string => {
     return `${ageYears}Y ${ageMonths}M`;
 };
 
+const getAgeInMonths = (birthDateString: string): number => {
+    const today = new Date();
+    const birthDate = new Date(birthDateString);
+    const years = today.getFullYear() - birthDate.getFullYear();
+    const months = today.getMonth() - birthDate.getMonth();
+    return (years * 12) + months;
+};
+
+// Heuristic to convert size label to max age in months
+const parseSizeToMaxMonths = (size: string): number | null => {
+    const s = size.toUpperCase().replace(/\s/g, '');
+    
+    // Handle "Months" (e.g. "6-9M", "3M")
+    if (s.includes('M')) {
+        // Find all numbers
+        const numbers = s.match(/\d+/g);
+        if (numbers && numbers.length > 0) {
+            // Take the largest number (e.g. 6-9M -> 9)
+            return parseInt(numbers[numbers.length - 1], 10);
+        }
+    }
+    
+    // Handle "Years" / "Toddler" (e.g. "2T", "3Y", "4")
+    if (s.includes('T') || s.includes('Y')) {
+        const numbers = s.match(/\d+/g);
+        if (numbers && numbers.length > 0) {
+            return parseInt(numbers[0], 10) * 12;
+        }
+    }
+
+    // Handle plain numbers usually as Years if small < 16, but could be tricky. 
+    // Let's assume plain numbers < 14 are years for kids clothes (e.g. Size 4, Size 6)
+    const plainNum = parseInt(s, 10);
+    if (!isNaN(plainNum) && plainNum < 14) {
+        return plainNum * 12;
+    }
+
+    // Newborn
+    if (s === 'NB' || s === 'NEWBORN') return 1; // 0-1 month
+
+    return null;
+};
+
 export const Dashboard: React.FC = () => {
   const [suggestion, setSuggestion] = useState<ClothingItem[]>([]);
+  const [justArchivedCount, setJustArchivedCount] = useState(0);
   
   const profile = useLiveQuery(() => db.profile.toArray());
-  const allItems = useLiveQuery(() => db.items.toArray());
+  // Only fetch active items for suggestions
+  const allItems = useLiveQuery(() => db.items.filter(i => !i.isArchived).toArray());
   
   const currentKid = profile?.[0];
 
@@ -74,28 +120,48 @@ export const Dashboard: React.FC = () => {
     setSuggestion(outfit);
   }, [allItems]);
 
-  // Placeholder logic for outgrown items - could be improved with real size vs age data
+  // Identify outgrown items
   const outgrownItems = allItems?.filter(item => {
     if (!currentKid?.birthDate) return false;
-    return false; 
+    const currentAgeMonths = getAgeInMonths(currentKid.birthDate);
+    const maxMonths = parseSizeToMaxMonths(item.sizeLabel);
+    
+    // If we successfully parsed a size, and current age is > size + buffer (e.g. 2 months grace)
+    if (maxMonths !== null && currentAgeMonths > maxMonths + 1) {
+        return true;
+    }
+    return false;
   }) || [];
+
+  const handleArchiveOutgrown = async () => {
+      if (outgrownItems.length === 0) return;
+      
+      const ids = outgrownItems.map(i => i.id).filter(id => id !== undefined) as number[];
+      if (ids.length > 0) {
+          await db.items.bulkUpdate(ids.map(id => ({ key: id, changes: { isArchived: true } })));
+          setJustArchivedCount(ids.length);
+          setTimeout(() => setJustArchivedCount(0), 3000);
+      }
+  };
 
   return (
     <div className="p-6 pb-28 max-w-md mx-auto">
-      <header className="mb-8 pt-4 flex justify-between items-center">
+      <header className="mb-8 pt-4 flex justify-between items-end">
         <div>
-            <p className="text-slate-500 text-sm font-bold tracking-wide mb-1 uppercase">Good Morning,</p>
-            <h1 className="text-3xl text-slate-800">
-              {currentKid?.name || 'Little One'}
-            </h1>
-            {currentKid?.birthDate && (
-                <div className="flex items-center gap-1 mt-1 text-pink-400 font-bold text-sm">
-                    <Cake size={14} />
-                    <span>{calculateAge(currentKid.birthDate)} Old</span>
-                </div>
-            )}
+            <Logo />
+            <div className="flex items-center gap-2 mt-2 ml-1">
+                <p className="text-slate-500 font-bold text-lg">
+                  Hi, {currentKid?.name || 'Little One'}
+                </p>
+                {currentKid?.birthDate && (
+                    <div className="flex items-center gap-1 bg-pink-100 text-pink-500 px-2 py-0.5 rounded-full font-bold text-xs">
+                        <Cake size={12} />
+                        <span>{calculateAge(currentKid.birthDate)}</span>
+                    </div>
+                )}
+            </div>
         </div>
-        <div className="h-12 w-12 rounded-full bg-sky-200 text-sky-700 flex items-center justify-center font-bold text-xl font-serif">
+        <div className="h-12 w-12 rounded-full bg-sky-200 text-sky-700 flex items-center justify-center font-bold text-xl font-serif border-2 border-white shadow-sm mb-2">
             {(currentKid?.name || 'K')[0]}
         </div>
       </header>
@@ -104,7 +170,7 @@ export const Dashboard: React.FC = () => {
 
       <section className="mb-10">
         <div className="flex justify-between items-center mb-4 px-1">
-          <h2 className="text-lg text-slate-800">Today's Outfit</h2>
+          <h2 className="text-lg text-slate-800 font-serif font-bold">Today's Outfit</h2>
           <span className="text-xs font-bold text-sky-500 bg-sky-100 px-3 py-1 rounded-full">AUTO</span>
         </div>
         
@@ -139,23 +205,54 @@ export const Dashboard: React.FC = () => {
         )}
       </section>
 
+      {/* Outgrown Alert Section */}
       {outgrownItems.length > 0 && (
-        <section className="bg-red-50 rounded-[2rem] p-6 flex items-start gap-4 mb-8">
-           <div className="bg-red-100 p-2 rounded-full text-red-500 shrink-0">
-                <AlertCircle size={24} />
-           </div>
-           <div>
-             <h3 className="font-bold text-red-900 mb-1">Size Check!</h3>
-             <p className="text-sm text-red-700 leading-relaxed">
-               {outgrownItems.length} items might be getting too small. Time to review?
-             </p>
+        <section className="bg-white border-2 border-red-50 rounded-[2rem] p-6 mb-8 relative overflow-hidden shadow-sm animate-in fade-in slide-in-from-bottom-4">
+           <div className="absolute top-0 right-0 w-24 h-24 bg-red-50 rounded-full -mr-8 -mt-8 z-0"></div>
+           <div className="relative z-10">
+               <div className="flex items-start gap-4 mb-4">
+                    <div className="bg-red-100 p-3 rounded-2xl text-red-500 shrink-0">
+                        <AlertCircle size={24} />
+                    </div>
+                    <div>
+                        <h3 className="font-bold text-slate-800 text-lg mb-1 font-serif">Growing Up!</h3>
+                        <p className="text-sm text-slate-500 leading-relaxed font-bold">
+                        We found <span className="text-red-500">{outgrownItems.length} items</span> that might be too small for {calculateAge(currentKid?.birthDate || '')}.
+                        </p>
+                    </div>
+               </div>
+               
+               <div className="flex gap-2 overflow-x-auto no-scrollbar pb-4 mb-2">
+                   {outgrownItems.map(item => (
+                       <div key={item.id} className="shrink-0 w-16 h-16 rounded-xl bg-slate-50 overflow-hidden relative border border-slate-100">
+                           <img src={item.image} className="w-full h-full object-cover opacity-80" />
+                           <div className="absolute bottom-0 inset-x-0 bg-red-500/80 text-white text-[10px] text-center font-bold">
+                               {item.sizeLabel}
+                           </div>
+                       </div>
+                   ))}
+               </div>
+
+               <button 
+                onClick={handleArchiveOutgrown}
+                className="w-full flex items-center justify-center gap-2 py-3 bg-red-50 text-red-500 font-bold rounded-xl hover:bg-red-100 transition-colors"
+               >
+                   <Archive size={18} /> Archive All
+               </button>
            </div>
         </section>
       )}
 
+      {justArchivedCount > 0 && (
+          <div className="fixed bottom-24 left-1/2 -translate-x-1/2 bg-slate-800 text-white px-6 py-3 rounded-full shadow-xl flex items-center gap-3 animate-in fade-in slide-in-from-bottom-8 z-50">
+              <CheckCircle2 className="text-green-400" size={20} />
+              <span className="font-bold">Archived {justArchivedCount} items</span>
+          </div>
+      )}
+
       <section>
         <div className="flex justify-between items-center mb-4 px-1">
-          <h2 className="text-lg text-slate-800">New Arrivals</h2>
+          <h2 className="text-lg text-slate-800 font-serif font-bold">New Arrivals</h2>
           <Link to="/closet" className="text-sm font-bold text-orange-500 hover:text-orange-600">
             See All
           </Link>

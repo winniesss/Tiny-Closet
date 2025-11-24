@@ -8,7 +8,7 @@ class ClosetDatabase extends Dexie {
   constructor() {
     super('KidsClosetDB');
     (this as any).version(1).stores({
-      items: '++id, brand, sizeLabel, category, dateAdded',
+      items: '++id, brand, sizeLabel, category, dateAdded, isArchived',
       profile: '++id, name'
     });
   }
