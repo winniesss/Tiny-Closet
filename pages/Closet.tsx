@@ -1,14 +1,19 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
 import { Category, Season, ClothingItem } from '../types';
-import { Search, Archive, RotateCcw } from 'lucide-react';
+import { Search, Archive, CheckCircle2 } from 'lucide-react';
+import { ItemDetailModal } from '../components/ItemDetailModal';
 import clsx from 'clsx';
 
 export const Closet: React.FC = () => {
   const [filterCategory, setFilterCategory] = useState<Category | 'All' | 'Archived'>('All');
   const [filterSeason, setFilterSeason] = useState<Season | 'All'>('All');
   const [search, setSearch] = useState('');
+  
+  // Interaction State
+  const [selectedItem, setSelectedItem] = useState<ClothingItem | null>(null);
+  const [notification, setNotification] = useState<string | null>(null);
 
   const items = useLiveQuery(() => {
     return db.items.toArray();
@@ -48,11 +53,92 @@ export const Closet: React.FC = () => {
     return true;
   });
 
-  const handleUnarchive = async (e: React.MouseEvent, id?: number) => {
-    e.stopPropagation();
-    if (id) {
-        await db.items.update(id, { isArchived: false });
-    }
+  const showNotification = (msg: string) => {
+      setNotification(msg);
+      setTimeout(() => setNotification(null), 3000);
+  };
+
+  const handleToggleArchive = async (item: ClothingItem) => {
+      if (item.id) {
+          const newState = !item.isArchived;
+          await db.items.update(item.id, { isArchived: newState });
+          showNotification(newState ? "Archived" : "Restored");
+          
+          // If we archived it while looking at the active list, close the modal
+          if (newState && filterCategory !== 'Archived' && selectedItem?.id === item.id) {
+              setSelectedItem(null);
+          }
+           // If we restored it while looking at the archive list, close the modal
+          if (!newState && filterCategory === 'Archived' && selectedItem?.id === item.id) {
+              setSelectedItem(null);
+          }
+      }
+  };
+
+  // --- Long Press Logic ---
+  const ItemCard: React.FC<{ item: ClothingItem }> = ({ item }) => {
+      const timerRef = useRef<number | null>(null);
+      const isLongPress = useRef(false);
+      const longPressDuration = 600;
+
+      const startPress = () => {
+          isLongPress.current = false;
+          timerRef.current = window.setTimeout(() => {
+              isLongPress.current = true;
+              // Haptic feedback if available
+              if (navigator.vibrate) navigator.vibrate(50);
+              handleToggleArchive(item);
+          }, longPressDuration);
+      };
+
+      const endPress = (e: React.MouseEvent | React.TouchEvent) => {
+          if (timerRef.current) {
+              clearTimeout(timerRef.current);
+              timerRef.current = null;
+          }
+          
+          if (isLongPress.current) {
+              // Prevent click event if it was a long press
+              e.preventDefault();
+              e.stopPropagation();
+          }
+      };
+
+      const handleClick = () => {
+          if (!isLongPress.current) {
+              setSelectedItem(item);
+          }
+      };
+
+      return (
+        <div 
+            onMouseDown={startPress}
+            onMouseUp={endPress}
+            onMouseLeave={endPress}
+            onTouchStart={startPress}
+            onTouchEnd={endPress}
+            onClick={handleClick}
+            onContextMenu={(e) => e.preventDefault()} // Prevent right-click menu on long press
+            className="group relative bg-white rounded-[2rem] p-3 shadow-sm border border-slate-50 transition-transform active:scale-95 cursor-pointer select-none"
+        >
+            <div className="w-full aspect-[3/4] overflow-hidden rounded-[1.5rem] bg-orange-50 relative mb-3">
+                <img src={item.image} alt={item.description} className="w-full h-full object-cover pointer-events-none" />
+                
+                {filterCategory === 'Archived' && (
+                    <div className="absolute inset-0 bg-slate-900/10 flex items-center justify-center">
+                         <div className="bg-white/80 backdrop-blur px-3 py-1 rounded-full text-[10px] font-bold shadow-sm">Archived</div>
+                    </div>
+                )}
+            </div>
+            <div className="px-1 pointer-events-none">
+                <div className="flex justify-between items-start mb-1">
+                    <h3 className="font-bold text-slate-800 leading-tight text-sm line-clamp-1">{item.category}</h3>
+                    <span className="text-[10px] font-bold bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-md">{item.sizeLabel}</span>
+                </div>
+                <p className="text-xs text-slate-400 font-bold uppercase truncate">{item.brand}</p>
+            </div>
+        </div>
+      );
   };
 
   return (
@@ -76,9 +162,9 @@ export const Closet: React.FC = () => {
         />
       </div>
 
-      {/* Category Filters - Horizontal Scroll with fix for cut-off edges */}
+      {/* Category Filters */}
       <div className="mb-4">
-          <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2 -mx-6 px-6">
+          <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2 -mx-6 px-6 py-2">
             <button
                 onClick={() => setFilterCategory('All')}
                 className={clsx(
@@ -118,9 +204,9 @@ export const Closet: React.FC = () => {
           </div>
       </div>
 
-      {/* Season Filters - Horizontal Scroll with fix for cut-off edges */}
+      {/* Season Filters */}
       <div className="mb-8">
-          <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2 -mx-6 px-6">
+          <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2 -mx-6 px-6 py-2">
             <button
                 onClick={() => setFilterSeason('All')}
                 className={clsx(
@@ -153,29 +239,7 @@ export const Closet: React.FC = () => {
       <div className="grid grid-cols-2 gap-4">
         {filteredItems && filteredItems.length > 0 ? (
             filteredItems.map((item) => (
-            <div key={item.id} className="group relative bg-white rounded-[2rem] p-3 shadow-sm border border-slate-50 transition-transform hover:scale-[1.02]">
-                <div className="w-full aspect-[3/4] overflow-hidden rounded-[1.5rem] bg-orange-50 relative mb-3">
-                    <img src={item.image} alt={item.description} className="w-full h-full object-cover" />
-                    
-                    {filterCategory === 'Archived' && (
-                        <div className="absolute inset-0 bg-slate-900/10 flex items-center justify-center">
-                            <button 
-                                onClick={(e) => handleUnarchive(e, item.id)}
-                                className="bg-white text-slate-800 px-3 py-2 rounded-full font-bold text-xs shadow-lg flex items-center gap-1 hover:bg-sky-50"
-                            >
-                                <RotateCcw size={12} /> Restore
-                            </button>
-                        </div>
-                    )}
-                </div>
-                <div className="px-1">
-                    <div className="flex justify-between items-start mb-1">
-                        <h3 className="font-bold text-slate-800 leading-tight text-sm line-clamp-1">{item.category}</h3>
-                        <span className="text-[10px] font-bold bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-md">{item.sizeLabel}</span>
-                    </div>
-                    <p className="text-xs text-slate-400 font-bold uppercase truncate">{item.brand}</p>
-                </div>
-            </div>
+                <ItemCard key={item.id} item={item} />
             ))
         ) : (
             <div className="col-span-2 py-12 text-center opacity-50">
@@ -193,6 +257,20 @@ export const Closet: React.FC = () => {
             </div>
         )}
       </div>
+
+      {/* Notification Toast */}
+      {notification && (
+          <div className="fixed bottom-24 left-1/2 -translate-x-1/2 bg-slate-800/90 backdrop-blur text-white px-6 py-3 rounded-full shadow-xl flex items-center gap-3 animate-in fade-in slide-in-from-bottom-8 z-[70]">
+              <CheckCircle2 className="text-green-400" size={20} />
+              <span className="font-bold text-sm">{notification}</span>
+          </div>
+      )}
+
+      <ItemDetailModal 
+        item={selectedItem} 
+        onClose={() => setSelectedItem(null)} 
+        onToggleArchive={handleToggleArchive}
+      />
     </div>
   );
 };

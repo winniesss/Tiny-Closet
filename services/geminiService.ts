@@ -6,9 +6,9 @@ const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 const itemSchema: Schema = {
   type: Type.OBJECT,
   properties: {
-    brand: { type: Type.STRING, description: "Brand name. If this is an order screenshot, extract the brand name from the text." },
-    sizeLabel: { type: Type.STRING, description: "Size on tag (e.g., 2T, 6M, 5Y), or estimate" },
-    color: { type: Type.STRING, description: "Primary color of the item" },
+    brand: { type: Type.STRING, description: "Brand name. If screenshot, extract exact brand text." },
+    sizeLabel: { type: Type.STRING, description: "Size on tag (e.g., 2T, 6M, 5Y)." },
+    color: { type: Type.STRING, description: "Primary color." },
     category: { 
       type: Type.STRING, 
       enum: [
@@ -19,18 +19,18 @@ const itemSchema: Schema = {
         Category.Outerwear, 
         Category.Accessory
       ],
-      description: "Category of the clothing item"
+      description: "Category of the item."
     },
     seasons: {
       type: Type.ARRAY,
       items: { type: Type.STRING, enum: [Season.Spring, Season.Summer, Season.Fall, Season.Winter, Season.All] },
-      description: "Suitable seasons for this item"
+      description: "Suitable seasons."
     },
-    description: { type: Type.STRING, description: "Detailed product name or description. IMPORTANT: If this is an order screenshot, extract the EXACT product text found near the item." },
+    description: { type: Type.STRING, description: "Detailed product name. Capture exact text from screenshot if available." },
     box_2d: {
       type: Type.ARRAY,
       items: { type: Type.INTEGER },
-      description: "EXTREMELY TIGHT bounding box [ymin, xmin, ymax, xmax] (0-1000) around the clothing item PIXELS only. STRICTLY EXCLUDE the white container box, text, prices, buttons, or UI elements."
+      description: "The PRECISE visual bounding box [ymin, xmin, ymax, xmax] (0-1000) of the item.\n\nCRITICAL INSTRUCTIONS:\n1. EXCLUDE all background whitespace, shadows, and UI cards.\n2. EXCLUDE model's face, arms, and legs if possible - crop to the garment.\n3. IGNORE hanger hooks if visible.\n4. HUG the fabric edges as tightly as possible, especially around complex textures like lace or frills."
     }
   },
   required: ["category", "color", "seasons", "description"],
@@ -42,7 +42,7 @@ const multiItemSchema: Schema = {
     items: {
       type: Type.ARRAY,
       items: itemSchema,
-      description: "List of all distinct clothing items identified in the image."
+      description: "List of all distinct clothing items found."
     }
   }
 };
@@ -66,7 +66,13 @@ const cropImage = (base64: string, box: number[]): Promise<string> => {
       const boxH = ((ymax - ymin) / 1000) * h;
       const boxW = ((xmax - xmin) / 1000) * w;
 
-      // No padding, ensuring tight crop on the product
+      // Validate dimensions to prevent 0-width crops
+      if (boxW < 10 || boxH < 10) {
+        resolve(base64); 
+        return;
+      }
+
+      // No padding, strict crop based on AI instructions
       const paddingX = 0;
       const paddingY = 0;
 
@@ -81,7 +87,7 @@ const cropImage = (base64: string, box: number[]): Promise<string> => {
       
       const ctx = canvas.getContext('2d');
       if (ctx) {
-        // High quality scaling
+        // High quality scaling settings
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = 'high';
 
@@ -90,7 +96,7 @@ const cropImage = (base64: string, box: number[]): Promise<string> => {
         ctx.fillRect(0, 0, finalW, finalH);
         
         ctx.drawImage(img, finalX, finalY, finalW, finalH, 0, 0, finalW, finalH);
-        resolve(canvas.toDataURL('image/jpeg'));
+        resolve(canvas.toDataURL('image/jpeg', 0.95)); // High quality JPEG
       } else {
         resolve(base64); // Fallback to original if context fails
       }
@@ -101,7 +107,7 @@ const cropImage = (base64: string, box: number[]): Promise<string> => {
 };
 
 export const analyzeClothingImage = async (base64Image: string): Promise<any[]> => {
-  // Remove header if present (data:image/jpeg;base64,) for the API call
+  // Remove header if present for API
   const cleanBase64 = base64Image.split(',')[1] || base64Image;
 
   try {
@@ -116,14 +122,15 @@ export const analyzeClothingImage = async (base64Image: string): Promise<any[]> 
             }
           },
           {
-            text: "Analyze this image. It is likely a screenshot of an online order or a photo of multiple items. Identify ALL distinct clothing items. \n\nCRITICAL FOR SCREENSHOTS:\n1. The 'box_2d' must strictly enclose ONLY the garment itself. Do NOT include the square product card, whitespace, price tags, or 'Add to Cart' buttons.\n2. Read the text associated with that thumbnail (product name, size, brand) and populate the 'description', 'sizeLabel', and 'brand' fields.\n\nFor photos: Detect each clothing item with a tight bounding box."
+            text: "Analyze this image for a digital closet app.\n\nTask:\n1. Identify all distinct clothing items.\n2. For each item, draw a 'box_2d' that acts as a tight crop for a sticker.\n3. IGNORE the white square container often found in screenshots; crop to the FABRIC inside it.\n4. Extract brand, size, and description from any visible text."
           }
         ]
       },
       config: {
         responseMimeType: "application/json",
         responseSchema: multiItemSchema,
-        systemInstruction: "You are an expert children's fashion assistant. You are excellent at identifying clothing in crowded screenshots and extracting precise, clean product thumbnails.",
+        thinkingConfig: { thinkingBudget: 1024 }, // Enable thinking for better spatial reasoning
+        systemInstruction: "You are a specialized Computer Vision AI. Your task is to detect clothing items in images with pixel-perfect precision. You must distinguish between the 'garment' and the 'container/background'. Your bounding boxes must be extremely tight to the fabric, minimizing whitespace. Ignore hanger hooks and shadows.",
       }
     });
 
@@ -136,6 +143,17 @@ export const analyzeClothingImage = async (base64Image: string): Promise<any[]> 
     // Process items to crop images if bounding boxes exist
     const processedItems = await Promise.all(items.map(async (item: any) => {
       if (item.box_2d && Array.isArray(item.box_2d) && item.box_2d.length === 4) {
+         const [ymin, xmin, ymax, xmax] = item.box_2d;
+         const height = ymax - ymin;
+         const width = xmax - xmin;
+         
+         // Filter 1: Inverted coordinates
+         if (height <= 0 || width <= 0) return item;
+
+         // Filter 2: Extreme Aspect Ratios (likely text lines or UI bars)
+         // e.g., Width is 6x Height -> Text line
+         if (width > height * 6) return item;
+         
         try {
           // Pass the original base64Image (with header if it had one) to the crop function
           const croppedImage = await cropImage(base64Image, item.box_2d);
@@ -175,13 +193,13 @@ export const findBetterItemImage = async (query: string, base64Image?: string): 
     }
 
     parts.push({
-      text: `You are an API that finds product images.
+      text: `You are an API that finds clean product images.
         User Query: "${query}"
         
-        Instructions:
-        1. Search Google for this product. Use the provided image (if any) to confirm the visual match (color, pattern).
-        2. Find the best available isolated product image.
-        3. Output a valid JSON object.
+        Task:
+        1. Search for this specific children's clothing item. Use the image to match visual style/pattern.
+        2. Find a high-resolution, isolated product shot (white or clean background).
+        3. Return JSON.
         
         JSON Format:
         \`\`\`json
@@ -191,11 +209,7 @@ export const findBetterItemImage = async (query: string, base64Image?: string): 
         }
         \`\`\`
         
-        Rules:
-        - "imageUrl" must be a direct link to the image file if possible, or a high-quality preview URL found in the search results.
-        - "sourceUrl" is the website where you found it.
-        - If you can't find a perfect white-background image, return the best lifestyle image or screenshot you found.
-        - Do NOT explain. ONLY output JSON.`
+        If no perfect isolated image exists, return the best clear view found.`
     });
 
     const response = await ai.models.generateContent({
@@ -205,7 +219,6 @@ export const findBetterItemImage = async (query: string, base64Image?: string): 
       },
       config: {
         tools: [{googleSearch: {}}],
-        // responseSchema is NOT allowed when using tools like googleSearch
       }
     });
 

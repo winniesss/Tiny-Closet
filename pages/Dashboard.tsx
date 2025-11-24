@@ -6,6 +6,7 @@ import { WeatherData, ClothingItem, Season, Category } from '../types';
 import { Shirt, AlertCircle, Cake, Archive, CheckCircle2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Logo } from '../components/Logo';
+import { ItemDetailModal } from '../components/ItemDetailModal';
 
 // Mock weather for demo purposes
 const MOCK_WEATHER: WeatherData = {
@@ -77,6 +78,7 @@ const parseSizeToMaxMonths = (size: string): number | null => {
 export const Dashboard: React.FC = () => {
   const [suggestion, setSuggestion] = useState<ClothingItem[]>([]);
   const [justArchivedCount, setJustArchivedCount] = useState(0);
+  const [selectedItem, setSelectedItem] = useState<ClothingItem | null>(null);
   
   const profile = useLiveQuery(() => db.profile.toArray());
   // Only fetch active items for suggestions
@@ -144,6 +146,13 @@ export const Dashboard: React.FC = () => {
       }
   };
 
+  const handleToggleArchive = async (item: ClothingItem) => {
+      if (item.id) {
+          await db.items.update(item.id, { isArchived: !item.isArchived });
+          setSelectedItem(null); // Close modal after archive action
+      }
+  };
+
   return (
     <div className="p-6 pb-28 max-w-md mx-auto">
       <header className="mb-8 pt-4 flex justify-between items-end">
@@ -161,8 +170,12 @@ export const Dashboard: React.FC = () => {
                 )}
             </div>
         </div>
-        <div className="h-12 w-12 rounded-full bg-sky-200 text-sky-700 flex items-center justify-center font-bold text-xl font-serif border-2 border-white shadow-sm mb-2">
-            {(currentKid?.name || 'K')[0]}
+        <div className="h-12 w-12 rounded-full bg-sky-200 text-sky-700 flex items-center justify-center font-bold text-xl font-serif border-2 border-white shadow-sm mb-2 overflow-hidden relative">
+            {currentKid?.avatar ? (
+                <img src={currentKid.avatar} alt="Profile" className="w-full h-full object-cover" />
+            ) : (
+                (currentKid?.name || 'K')[0]
+            )}
         </div>
       </header>
 
@@ -187,7 +200,11 @@ export const Dashboard: React.FC = () => {
         ) : suggestion.length > 0 ? (
           <div className="grid grid-cols-2 gap-4">
             {suggestion.map((item, i) => (
-              <div key={item.id} className={`group relative bg-white rounded-[2rem] p-3 shadow-sm border border-slate-50 ${i % 2 !== 0 ? 'mt-8' : ''}`}>
+              <div 
+                key={item.id} 
+                onClick={() => setSelectedItem(item)}
+                className={`group relative bg-white rounded-[2rem] p-3 shadow-sm border border-slate-50 cursor-pointer transition-transform active:scale-95 ${i % 2 !== 0 ? 'mt-8' : ''}`}
+              >
                  <div className="w-full aspect-[3/4] overflow-hidden rounded-[1.5rem] bg-orange-50 relative mb-3">
                    <img src={item.image} alt={item.description} className="w-full h-full object-cover" />
                  </div>
@@ -224,7 +241,11 @@ export const Dashboard: React.FC = () => {
                
                <div className="flex gap-2 overflow-x-auto no-scrollbar pb-4 mb-2">
                    {outgrownItems.map(item => (
-                       <div key={item.id} className="shrink-0 w-16 h-16 rounded-xl bg-slate-50 overflow-hidden relative border border-slate-100">
+                       <div 
+                         key={item.id} 
+                         onClick={() => setSelectedItem(item)}
+                         className="shrink-0 w-16 h-16 rounded-xl bg-slate-50 overflow-hidden relative border border-slate-100 cursor-pointer"
+                        >
                            <img src={item.image} className="w-full h-full object-cover opacity-80" />
                            <div className="absolute bottom-0 inset-x-0 bg-red-500/80 text-white text-[10px] text-center font-bold">
                                {item.sizeLabel}
@@ -259,7 +280,7 @@ export const Dashboard: React.FC = () => {
         </div>
         <div className="flex gap-4 overflow-x-auto no-scrollbar pb-4 -mx-6 px-6">
           {allItems?.slice().reverse().slice(0, 5).map(item => (
-            <div key={item.id} className="w-24 shrink-0">
+            <div key={item.id} className="w-24 shrink-0 cursor-pointer transition-transform active:scale-95" onClick={() => setSelectedItem(item)}>
                  <div className="aspect-square rounded-[1.5rem] overflow-hidden bg-white border border-slate-100 shadow-sm mb-2">
                     <img src={item.image} alt={item.description} className="w-full h-full object-cover" />
                  </div>
@@ -267,6 +288,12 @@ export const Dashboard: React.FC = () => {
           ))}
         </div>
       </section>
+
+      <ItemDetailModal 
+        item={selectedItem} 
+        onClose={() => setSelectedItem(null)} 
+        onToggleArchive={handleToggleArchive}
+      />
     </div>
   );
 };

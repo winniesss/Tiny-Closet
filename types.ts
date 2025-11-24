@@ -32,6 +32,7 @@ export interface ChildProfile {
   id?: number;
   name: string;
   birthDate: string;
+  avatar?: string; // Base64 image string
 }
 
 export interface WeatherData {
