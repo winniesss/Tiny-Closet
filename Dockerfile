@@ -8,7 +8,6 @@ RUN npm install
 COPY . .
 RUN npm run build
 
-
 # 2️⃣ Production stage — Serve static files with Nginx
 FROM nginx:1.21.0-alpine
 
