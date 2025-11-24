@@ -208,24 +208,22 @@ export const Dashboard: React.FC = () => {
       <WeatherWidget data={MOCK_WEATHER} />
 
       <section className="mb-10">
-        <div className="flex justify-between items-center mb-4 px-1">
-          <div className="flex items-center gap-4">
-              <h2 className="text-lg text-slate-800 font-serif font-bold">Today's Outfit</h2>
-              <div className="flex bg-white rounded-full p-1 shadow-sm border border-slate-100">
-                  <button 
-                    onClick={() => setActiveOption(1)}
-                    className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${activeOption === 1 ? 'bg-sky-400 text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
-                  >
-                      Option 1
-                  </button>
-                  <button 
-                    onClick={() => setActiveOption(2)}
-                    className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${activeOption === 2 ? 'bg-sky-400 text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
-                  >
-                      Option 2
-                  </button>
-              </div>
-          </div>
+        <div className="flex items-center justify-between mb-4 px-1">
+            <h2 className="text-lg text-slate-800 font-serif font-bold">Today's Outfit</h2>
+            <div className="flex bg-white rounded-full p-1 shadow-sm border border-slate-100">
+                <button 
+                onClick={() => setActiveOption(1)}
+                className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${activeOption === 1 ? 'bg-sky-400 text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                >
+                    Option 1
+                </button>
+                <button 
+                onClick={() => setActiveOption(2)}
+                className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${activeOption === 2 ? 'bg-sky-400 text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                >
+                    Option 2
+                </button>
+            </div>
         </div>
         
         {(!allItems || allItems.length === 0) ? (
