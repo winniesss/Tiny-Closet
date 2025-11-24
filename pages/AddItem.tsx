@@ -135,10 +135,10 @@ export const AddItem: React.FC = () => {
             sourceUrl: result.sourceUrl || ''
         });
       } else {
-        setSearchError("Could not find a better image. Try adding more specific keywords.");
+        setSearchError("We couldn't find a matching image online.");
       }
     } catch (error) {
-        setSearchError("Connection failed.");
+        setSearchError("Search service unavailable. Please check connection.");
     } finally {
         setIsSearchingImage(false);
     }
@@ -164,7 +164,14 @@ export const AddItem: React.FC = () => {
 
   if (step === 'upload') {
     return (
-      <div className="h-screen flex flex-col bg-orange-50">
+      <div className="h-screen flex flex-col bg-orange-50 relative">
+        <button 
+            onClick={() => navigate('/')}
+            className="absolute top-6 right-6 p-3 bg-white rounded-full text-slate-400 hover:text-slate-600 shadow-sm z-10"
+        >
+            <X size={24} />
+        </button>
+
         <div className="flex-1 flex flex-col items-center justify-center p-8 text-center space-y-8">
           <div className="w-28 h-28 bg-white rounded-[2rem] shadow-lg flex items-center justify-center text-sky-500 mb-2 transform rotate-3">
             <Camera size={56} strokeWidth={2} />
@@ -302,8 +309,23 @@ export const AddItem: React.FC = () => {
             </button>
             
             {searchError && (
-              <div className="mt-3 p-3 bg-red-50 text-red-500 rounded-xl text-xs font-bold text-center">
-                {searchError}
+              <div className="mt-4 p-4 bg-red-50 border border-red-100 rounded-2xl animate-in fade-in slide-in-from-top-2">
+                <div className="flex items-start gap-3">
+                    <div className="bg-white p-2 rounded-full text-red-400 shrink-0 shadow-sm">
+                        <AlertTriangle size={18} />
+                    </div>
+                    <div className="flex-1">
+                        <p className="text-sm font-bold text-red-600 mb-2">{searchError}</p>
+                        <div className="bg-white/60 rounded-xl p-3">
+                            <p className="text-xs text-slate-500 font-bold mb-1 uppercase tracking-wider">Suggestions:</p>
+                            <ul className="text-xs text-slate-600 space-y-1 font-medium">
+                                <li className="flex items-center gap-1.5">• Try specific brand + type (e.g. "H&M Boys Tee")</li>
+                                <li className="flex items-center gap-1.5">• Check spelling of keywords</li>
+                                <li className="flex items-center gap-1.5">• Upload a clearer photo if possible</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
               </div>
             )}
 
