@@ -244,12 +244,12 @@ export const Dashboard: React.FC = () => {
               <div 
                 key={`${item.id}-${i}`} 
                 onClick={() => setSelectedItem(item)}
-                className={`group relative bg-white rounded-[2rem] p-3 shadow-sm border border-slate-50 cursor-pointer transition-transform active:scale-95 ${i % 2 !== 0 ? 'mt-8' : ''}`}
+                className="group relative bg-white rounded-[2rem] p-3 shadow-sm border border-slate-50 cursor-pointer transition-transform active:scale-95 h-full flex flex-col"
               >
                  <div className="w-full aspect-[3/4] overflow-hidden rounded-[1.5rem] bg-orange-50 relative mb-3">
                    <img src={item.image} alt={item.description} className="w-full h-full object-cover" />
                  </div>
-                 <div className="px-1">
+                 <div className="px-1 flex-1">
                     <h3 className="font-bold text-slate-800 leading-tight mb-1 font-serif">{item.category}</h3>
                     <p className="text-xs text-slate-500 font-bold uppercase">{item.brand}</p>
                  </div>

@@ -92,8 +92,8 @@ export const Closet: React.FC = () => {
       };
 
       const endPress = (e: React.MouseEvent | React.TouchEvent) => {
-          if (timerRef.current) {
-              clearTimeout(timerRef.current);
+          if (timerRef.current !== null) {
+              window.clearTimeout(timerRef.current);
               timerRef.current = null;
           }
           

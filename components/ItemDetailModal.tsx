@@ -45,6 +45,14 @@ export const ItemDetailModal: React.FC<Props> = ({ item, onClose, onToggleArchiv
     setFormData({ ...formData, seasons: newSeasons });
   };
 
+  const formatDate = (timestamp: number) => {
+    return new Date(timestamp).toLocaleDateString(undefined, {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+  };
+
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
       <div className="bg-white rounded-[2.5rem] w-full max-w-md overflow-hidden shadow-2xl relative flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-300">
@@ -195,7 +203,10 @@ export const ItemDetailModal: React.FC<Props> = ({ item, onClose, onToggleArchiv
                         </div>
                     </div>
                     
-                    <p className="text-lg font-bold text-slate-500 mb-6">{item.brand}</p>
+                    <div className="mb-6">
+                        <p className="text-lg font-bold text-slate-500">{item.brand}</p>
+                        <p className="text-xs font-medium text-slate-400 mt-1">Added on {formatDate(item.dateAdded)}</p>
+                    </div>
                     
                     <div className="flex gap-2 mb-8 flex-wrap">
                         {item.seasons.map(s => (
