@@ -19,6 +19,7 @@ export const AddItem: React.FC = () => {
 
   const [isSearchingImage, setIsSearchingImage] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
+  const [searchSuggestion, setSearchSuggestion] = useState<string | null>(null);
   const [betterImageCandidate, setBetterImageCandidate] = useState<{imageUrl: string, sourceUrl: string} | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -26,6 +27,7 @@ export const AddItem: React.FC = () => {
   useEffect(() => {
     setBetterImageCandidate(null);
     setSearchError(null);
+    setSearchSuggestion(null);
     if (reviewItems[currentIndex]) {
         const item = reviewItems[currentIndex];
         // Clean up the search term to remove duplicates if description contains brand
@@ -115,12 +117,14 @@ export const AddItem: React.FC = () => {
   const handleFindBetterImage = async () => {
     if (!searchTerm.trim()) {
         setSearchError("Please enter keywords to search.");
+        setSearchSuggestion("Type a brand and item type, e.g. 'Zara Kids Blue Shirt'");
         return;
     }
 
     setIsSearchingImage(true);
     setBetterImageCandidate(null);
     setSearchError(null);
+    setSearchSuggestion(null);
 
     const currentItem = reviewItems[currentIndex];
 
@@ -129,16 +133,18 @@ export const AddItem: React.FC = () => {
       // to help the AI find the exact visual match.
       const result = await findBetterItemImage(searchTerm, currentItem.image);
       
-      if (result && result.imageUrl) {
+      if (result.success && result.data) {
         setBetterImageCandidate({
-            imageUrl: result.imageUrl,
-            sourceUrl: result.sourceUrl || ''
+            imageUrl: result.data.imageUrl,
+            sourceUrl: result.data.sourceUrl || ''
         });
       } else {
-        setSearchError("We couldn't find a matching image online.");
+        setSearchError(result.error || "Search failed.");
+        setSearchSuggestion(result.suggestion || "Try different keywords.");
       }
     } catch (error) {
-        setSearchError("Search service unavailable. Please check connection.");
+        setSearchError("Search service unavailable.");
+        setSearchSuggestion("Please check your internet connection.");
     } finally {
         setIsSearchingImage(false);
     }
@@ -149,6 +155,7 @@ export const AddItem: React.FC = () => {
       handleUpdateCurrentItem('image', betterImageCandidate.imageUrl);
       setBetterImageCandidate(null);
       setSearchError(null);
+      setSearchSuggestion(null);
     }
   };
 
@@ -315,15 +322,12 @@ export const AddItem: React.FC = () => {
                         <AlertTriangle size={18} />
                     </div>
                     <div className="flex-1">
-                        <p className="text-sm font-bold text-red-600 mb-2">{searchError}</p>
-                        <div className="bg-white/60 rounded-xl p-3">
-                            <p className="text-xs text-slate-500 font-bold mb-1 uppercase tracking-wider">Suggestions:</p>
-                            <ul className="text-xs text-slate-600 space-y-1 font-medium">
-                                <li className="flex items-center gap-1.5">• Try specific brand + type (e.g. "H&M Boys Tee")</li>
-                                <li className="flex items-center gap-1.5">• Check spelling of keywords</li>
-                                <li className="flex items-center gap-1.5">• Upload a clearer photo if possible</li>
-                            </ul>
-                        </div>
+                        <p className="text-sm font-bold text-red-600 mb-1">{searchError}</p>
+                        {searchSuggestion && (
+                            <p className="text-xs text-red-500 font-medium">
+                                💡 {searchSuggestion}
+                            </p>
+                        )}
                     </div>
                 </div>
               </div>

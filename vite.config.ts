@@ -6,6 +6,7 @@ export default defineConfig(({ mode }) => {
   // Load env file based on `mode` in the current working directory.
   const env = loadEnv(mode, '.', '');
   return {
+    base: './',
     plugins: [react()],
     build: {
       outDir: 'dist',

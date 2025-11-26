@@ -30,7 +30,7 @@ const itemSchema: Schema = {
     box_2d: {
       type: Type.ARRAY,
       items: { type: Type.INTEGER },
-      description: "The PRECISE visual bounding box [ymin, xmin, ymax, xmax] (0-1000) of the item.\n\nCRITICAL INSTRUCTIONS:\n1. EXCLUDE all background whitespace, shadows, and UI cards.\n2. EXCLUDE model's face, arms, and legs if possible - crop to the garment.\n3. IGNORE hanger hooks if visible.\n4. HUG the fabric edges as tightly as possible, especially around complex textures like lace or frills."
+      description: "The PRECISE bounding box [ymin, xmin, ymax, xmax] (0-1000) of the clothing item. Shrink wrap the box to the garment's edges. DO NOT include the product container/card borders. DO NOT include price text or 'Add' buttons. EXCLUDE all whitespace padding."
     }
   },
   required: ["category", "color", "seasons", "description"],
@@ -47,12 +47,23 @@ const multiItemSchema: Schema = {
   }
 };
 
+export interface ImageSearchResult {
+  success: boolean;
+  data?: {
+    imageUrl: string;
+    sourceUrl: string;
+  };
+  error?: string;
+  suggestion?: string;
+}
+
 /**
  * Crops a specific region from a base64 image.
  * @param base64 The full source image
  * @param box [ymin, xmin, ymax, xmax] in 0-1000 scale
+ * @param paddingPct Optional percentage of padding to add (e.g., 0.05 for 5%). Defaults to 0 for strict cropping.
  */
-const cropImage = (base64: string, box: number[]): Promise<string> => {
+const cropImage = (base64: string, box: number[], paddingPct: number = 0): Promise<string> => {
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
@@ -66,20 +77,38 @@ const cropImage = (base64: string, box: number[]): Promise<string> => {
       const boxH = ((ymax - ymin) / 1000) * h;
       const boxW = ((xmax - xmin) / 1000) * w;
 
-      // Validate dimensions to prevent 0-width crops
-      if (boxW < 10 || boxH < 10) {
+      // Validate dimensions to prevent 0-width crops or tiny noise
+      if (boxW < 1 || boxH < 1) {
         resolve(base64); 
         return;
       }
 
-      // No padding, strict crop based on AI instructions
-      const paddingX = 0;
-      const paddingY = 0;
+      // Calculate padding pixels based on box size
+      const padX = boxW * paddingPct;
+      const padY = boxH * paddingPct;
 
-      const finalX = Math.max(0, x - paddingX);
-      const finalY = Math.max(0, y - paddingY);
-      const finalW = Math.min(w - finalX, boxW + (paddingX * 2));
-      const finalH = Math.min(h - finalY, boxH + (paddingY * 2));
+      // Calculate final start coordinates with clamping to 0
+      const finalX = Math.max(0, x - padX);
+      const finalY = Math.max(0, y - padY);
+      
+      // Calculate desired final width/height including padding
+      let finalW = boxW + (padX * 2);
+      let finalH = boxH + (padY * 2);
+
+      // Clamp width/height so we don't exceed source image boundaries
+      if (finalX + finalW > w) {
+        finalW = w - finalX;
+      }
+      if (finalY + finalH > h) {
+        finalH = h - finalY;
+      }
+
+      // Final safety check: ensure positive dimensions
+      if (finalW <= 0 || finalH <= 0) {
+         console.warn("Invalid crop dimensions calculated, returning original.", { finalW, finalH });
+         resolve(base64);
+         return;
+      }
 
       const canvas = document.createElement('canvas');
       canvas.width = finalW;
@@ -95,7 +124,15 @@ const cropImage = (base64: string, box: number[]): Promise<string> => {
         ctx.fillStyle = '#FFFFFF';
         ctx.fillRect(0, 0, finalW, finalH);
         
-        ctx.drawImage(img, finalX, finalY, finalW, finalH, 0, 0, finalW, finalH);
+        // Draw the specific region from the source image onto the canvas
+        ctx.drawImage(
+          img, 
+          finalX, finalY,   // Source start X, Y
+          finalW, finalH,   // Source width, height
+          0, 0,             // Destination start X, Y
+          finalW, finalH    // Destination width, height
+        );
+        
         resolve(canvas.toDataURL('image/jpeg', 0.95)); // High quality JPEG
       } else {
         resolve(base64); // Fallback to original if context fails
@@ -122,15 +159,32 @@ export const analyzeClothingImage = async (base64Image: string): Promise<any[]> 
             }
           },
           {
-            text: "Analyze this image for a digital closet app.\n\nTask:\n1. Identify all distinct clothing items.\n2. For each item, draw a 'box_2d' that acts as a tight crop for a sticker.\n3. IGNORE the white square container often found in screenshots; crop to the FABRIC inside it.\n4. Extract brand, size, and description from any visible text."
+            text: `Analyze this image (screenshot or photo) for a closet inventory app.
+
+Task:
+1. Detect all distinct clothing items.
+2. For each item, determine the **exact pixel boundaries** of the garment itself.
+3. Return a 'box_2d' [ymin, xmin, ymax, xmax] (0-1000 scale) that is **strictly tight** to the item.
+   - **CRITICAL**: If this is a screenshot, the item is likely inside a 'card' or container. You MUST exclude the container boundaries.
+   - **CRITICAL**: Crop out any 'white space' or padding around the item.
+   - **CRITICAL**: Exclude hangers, mannequin heads, text overlays, price tags, and UI buttons.
+4. Extract metadata: Brand, Size, Color, Category, Seasons, Description. Use text from the image if available.`
           }
         ]
       },
       config: {
         responseMimeType: "application/json",
         responseSchema: multiItemSchema,
-        thinkingConfig: { thinkingBudget: 1024 }, // Enable thinking for better spatial reasoning
-        systemInstruction: "You are a specialized Computer Vision AI. Your task is to detect clothing items in images with pixel-perfect precision. You must distinguish between the 'garment' and the 'container/background'. Your bounding boxes must be extremely tight to the fabric, minimizing whitespace. Ignore hanger hooks and shadows.",
+        // Increased thinking budget for pixel-perfect reasoning
+        thinkingConfig: { thinkingBudget: 2048 }, 
+        systemInstruction: `You are a specialized Fashion Object Detection AI. 
+Your goal is to generate bounding boxes for cropping product thumbnails.
+The most common error is including the "white box" surrounding a product in a screenshot.
+YOU MUST AVOID THIS.
+Your bounding box should be TIGHT against the fabric of the clothing.
+If there is a 10% margin of white space between the sleeve and the border, shrink your box to eliminate it.
+Treat the 'box_2d' as a scissor cut. Anything inside stays, anything outside is gone.
+Do not cut off parts of the garment, but do not include background noise.`,
       }
     });
 
@@ -156,7 +210,7 @@ export const analyzeClothingImage = async (base64Image: string): Promise<any[]> 
          
         try {
           // Pass the original base64Image (with header if it had one) to the crop function
-          const croppedImage = await cropImage(base64Image, item.box_2d);
+          const croppedImage = await cropImage(base64Image, item.box_2d, 0);
           return { ...item, image: croppedImage };
         } catch (e) {
           console.error("Cropping failed", e);
@@ -177,7 +231,15 @@ export const analyzeClothingImage = async (base64Image: string): Promise<any[]> 
  * Searches for a better product image online using Google Search.
  * Supports multimodal input (text + image) for better accuracy.
  */
-export const findBetterItemImage = async (query: string, base64Image?: string): Promise<{imageUrl?: string, sourceUrl?: string} | null> => {
+export const findBetterItemImage = async (query: string, base64Image?: string): Promise<ImageSearchResult> => {
+  if (!query.trim()) {
+    return {
+      success: false,
+      error: "Missing search terms.",
+      suggestion: "Please enter keywords like 'Brand + Color + Type'."
+    };
+  }
+
   try {
     const parts: any[] = [];
     
@@ -224,7 +286,13 @@ export const findBetterItemImage = async (query: string, base64Image?: string): 
 
     let text = response.text || '';
     
-    if (!text) return null;
+    if (!text) {
+      return {
+        success: false,
+        error: "No response from AI service.",
+        suggestion: "Please try searching again in a moment."
+      };
+    }
 
     // Clean up markdown code blocks if present
     text = text.replace(/```json/g, '').replace(/```/g, '').trim();
@@ -235,7 +303,13 @@ export const findBetterItemImage = async (query: string, base64Image?: string): 
         try {
             const data = JSON.parse(jsonMatch[0]);
             if (data.imageUrl && (data.imageUrl.startsWith('http') || data.imageUrl.startsWith('data:image'))) {
-                return data;
+                return {
+                  success: true,
+                  data: {
+                    imageUrl: data.imageUrl,
+                    sourceUrl: data.sourceUrl || ''
+                  }
+                };
             }
         } catch (e) {
             console.warn("JSON parse error", e);
@@ -246,14 +320,38 @@ export const findBetterItemImage = async (query: string, base64Image?: string): 
     const urlMatch = text.match(/https?:\/\/[^\s"']+\.(?:jpg|jpeg|png|webp)/i);
     if (urlMatch) {
         return {
+          success: true,
+          data: {
             imageUrl: urlMatch[0],
             sourceUrl: ""
+          }
         };
     }
     
-    return null;
-  } catch (error) {
+    return {
+      success: false,
+      error: "No matching images found.",
+      suggestion: "Try removing specific details like size (e.g. '4T') or add the brand name if missing."
+    };
+
+  } catch (error: any) {
     console.error("Online Search Error:", error);
-    return null;
+    
+    let msg = "Search failed due to a technical issue.";
+    let suggestion = "Check your internet connection and try again.";
+
+    if (error.message?.includes('400') || error.message?.includes('API key')) {
+      msg = "Service configuration error.";
+      suggestion = "Please verify API Key settings.";
+    } else if (error.message?.includes('quota') || error.message?.includes('429')) {
+      msg = "Search limit reached.";
+      suggestion = "Please try again in a few minutes.";
+    }
+
+    return {
+      success: false,
+      error: msg,
+      suggestion: suggestion
+    };
   }
 };
