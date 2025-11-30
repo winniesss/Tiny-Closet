@@ -6,9 +6,9 @@ const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 const itemSchema: Schema = {
   type: Type.OBJECT,
   properties: {
-    brand: { type: Type.STRING, description: "Brand name. If screenshot, extract exact brand text." },
-    sizeLabel: { type: Type.STRING, description: "Size on tag (e.g., 2T, 6M, 5Y)." },
-    color: { type: Type.STRING, description: "Primary color." },
+    brand: { type: Type.STRING, description: "Brand name. If screenshot, extract exact brand text from the item row." },
+    sizeLabel: { type: Type.STRING, description: "Size on tag (e.g., 2T, 6M, 5Y). If screenshot, look for 'Size: X' text." },
+    color: { type: Type.STRING, description: "Primary color. Infer from image or text description." },
     category: { 
       type: Type.STRING, 
       enum: [
@@ -30,7 +30,7 @@ const itemSchema: Schema = {
     box_2d: {
       type: Type.ARRAY,
       items: { type: Type.INTEGER },
-      description: "The PRECISE bounding box [ymin, xmin, ymax, xmax] (0-1000) of the clothing item. Shrink wrap the box to the garment's edges. DO NOT include the product container/card borders. DO NOT include price text or 'Add' buttons. EXCLUDE all whitespace padding."
+      description: "The TIGHTEST POSSIBLE bounding box [ymin, xmin, ymax, xmax] (0-1000) encompassing ONLY the garment. Exclude hangers, background, and white padding."
     }
   },
   required: ["category", "color", "seasons", "description"],
@@ -61,7 +61,7 @@ export interface ImageSearchResult {
  * Crops a specific region from a base64 image.
  * @param base64 The full source image
  * @param box [ymin, xmin, ymax, xmax] in 0-1000 scale
- * @param paddingPct Optional percentage of padding to add (e.g., 0.05 for 5%). Defaults to 0 for strict cropping.
+ * @param paddingPct Optional percentage of padding to add. Defaults to 0 for strict cropping.
  */
 const cropImage = (base64: string, box: number[], paddingPct: number = 0): Promise<string> => {
   return new Promise((resolve) => {
@@ -78,7 +78,8 @@ const cropImage = (base64: string, box: number[], paddingPct: number = 0): Promi
       const boxW = ((xmax - xmin) / 1000) * w;
 
       // Validate dimensions to prevent 0-width crops or tiny noise
-      if (boxW < 1 || boxH < 1) {
+      if (boxW < 5 || boxH < 5) {
+        // Too small to be valid, return original or handle error
         resolve(base64); 
         return;
       }
@@ -96,16 +97,11 @@ const cropImage = (base64: string, box: number[], paddingPct: number = 0): Promi
       let finalH = boxH + (padY * 2);
 
       // Clamp width/height so we don't exceed source image boundaries
-      if (finalX + finalW > w) {
-        finalW = w - finalX;
-      }
-      if (finalY + finalH > h) {
-        finalH = h - finalY;
-      }
+      if (finalX + finalW > w) finalW = w - finalX;
+      if (finalY + finalH > h) finalH = h - finalY;
 
-      // Final safety check: ensure positive dimensions
+      // Final safety check
       if (finalW <= 0 || finalH <= 0) {
-         console.warn("Invalid crop dimensions calculated, returning original.", { finalW, finalH });
          resolve(base64);
          return;
       }
@@ -114,13 +110,13 @@ const cropImage = (base64: string, box: number[], paddingPct: number = 0): Promi
       canvas.width = finalW;
       canvas.height = finalH;
       
-      const ctx = canvas.getContext('2d');
+      const ctx = canvas.getContext('2d', { willReadFrequently: false });
       if (ctx) {
         // High quality scaling settings
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = 'high';
 
-        // Fill white background first to handle transparent PNGs turning black
+        // Fill white background first (safe default for transparent PNGs)
         ctx.fillStyle = '#FFFFFF';
         ctx.fillRect(0, 0, finalW, finalH);
         
@@ -133,9 +129,10 @@ const cropImage = (base64: string, box: number[], paddingPct: number = 0): Promi
           finalW, finalH    // Destination width, height
         );
         
-        resolve(canvas.toDataURL('image/jpeg', 0.95)); // High quality JPEG
+        // Use higher quality JPEG
+        resolve(canvas.toDataURL('image/jpeg', 0.98)); 
       } else {
-        resolve(base64); // Fallback to original if context fails
+        resolve(base64); 
       }
     };
     img.onerror = () => resolve(base64);
@@ -159,32 +156,42 @@ export const analyzeClothingImage = async (base64Image: string): Promise<any[]> 
             }
           },
           {
-            text: `Analyze this image (screenshot or photo) for a closet inventory app.
+            text: `Analyze this image for a closet inventory app. 
+      
+      GOAL: Accurate detection and PRECISE cropping of clothing items.
 
-Task:
-1. Detect all distinct clothing items.
-2. For each item, determine the **exact pixel boundaries** of the garment itself.
-3. Return a 'box_2d' [ymin, xmin, ymax, xmax] (0-1000 scale) that is **strictly tight** to the item.
-   - **CRITICAL**: If this is a screenshot, the item is likely inside a 'card' or container. You MUST exclude the container boundaries.
-   - **CRITICAL**: Crop out any 'white space' or padding around the item.
-   - **CRITICAL**: Exclude hangers, mannequin heads, text overlays, price tags, and UI buttons.
-4. Extract metadata: Brand, Size, Color, Category, Seasons, Description. Use text from the image if available.`
+      Tasks:
+      1. Detect distinct clothing items.
+      
+      2. DIGITAL SCREENSHOTS (e.g. Online Store Cart/History):
+         - Identify each product row.
+         - **box_2d**: Draw the box STRICTLY around the product thumbnail image. 
+         - **Exclude**: Text descriptions, price tags, quantity buttons, and white whitespace margins.
+         - Extract metadata (Brand/Size) from the adjacent text.
+
+      3. REAL PHOTOS (e.g. Flat Lay or Hanger):
+         - **box_2d**: Draw the box EXTREMELY TIGHTLY around the garment fabric.
+         - **Exclude**: The hanger hook (crop it out).
+         - **Exclude**: Background clutter, floor, bed sheets, or shadows.
+         - If worn: Crop to the garment, excluding the person's face/hands if possible.
+      
+      4. Return a list of items found.`
           }
         ]
       },
       config: {
         responseMimeType: "application/json",
         responseSchema: multiItemSchema,
-        // Increased thinking budget for pixel-perfect reasoning
         thinkingConfig: { thinkingBudget: 2048 }, 
-        systemInstruction: `You are a specialized Fashion Object Detection AI. 
-Your goal is to generate bounding boxes for cropping product thumbnails.
-The most common error is including the "white box" surrounding a product in a screenshot.
-YOU MUST AVOID THIS.
-Your bounding box should be TIGHT against the fabric of the clothing.
-If there is a 10% margin of white space between the sleeve and the border, shrink your box to eliminate it.
-Treat the 'box_2d' as a scissor cut. Anything inside stays, anything outside is gone.
-Do not cut off parts of the garment, but do not include background noise.`,
+        systemInstruction: `You are an expert fashion image analyzer.
+        
+        YOUR PRIORITY IS THE BOUNDING BOX QUALITY.
+        - The box must be as small as possible while containing the entire garment.
+        - Do not include "air" or background around the item.
+        - For screenshots, distinguish between the product image and the UI elements.
+        - Ignore non-clothing items unless they are accessories.
+        
+        Return pure JSON.`,
       }
     });
 
@@ -201,12 +208,14 @@ Do not cut off parts of the garment, but do not include background noise.`,
          const height = ymax - ymin;
          const width = xmax - xmin;
          
-         // Filter 1: Inverted coordinates
+         // Filter 1: Invalid coordinates
          if (height <= 0 || width <= 0) return item;
 
-         // Filter 2: Extreme Aspect Ratios (likely text lines or UI bars)
-         // e.g., Width is 6x Height -> Text line
-         if (width > height * 6) return item;
+         // Filter 2: Extreme Aspect Ratios (Noise reduction)
+         const ratio = width / height;
+         // Reject very thin strips (likely text rows) or very tall thin lines
+         // Typical clothes are between 0.3 (tall dress) and 3.0 (wide belt/shoes)
+         if (ratio > 5 || ratio < 0.2) return item; 
          
         try {
           // Pass the original base64Image (with header if it had one) to the crop function
@@ -255,23 +264,30 @@ export const findBetterItemImage = async (query: string, base64Image?: string): 
     }
 
     parts.push({
-      text: `You are an API that finds clean product images.
-        User Query: "${query}"
+      text: `You are a smart shopping assistant.
+        User Input: "${query}"
         
-        Task:
-        1. Search for this specific children's clothing item. Use the image to match visual style/pattern.
-        2. Find a high-resolution, isolated product shot (white or clean background).
-        3. Return JSON.
+        GOAL: Find a **Google Images Thumbnail** URL for this product.
         
-        JSON Format:
+        CONTEXT: The user is on a mobile app that cannot load images from retailer websites due to CORS/Hotlink blocking. 
+        We **MUST** use the Google cached version (starting with 'https://encrypted-tbn' or 'https://lh3.googleusercontent').
+
+        INSTRUCTIONS:
+        1. Search for "${query}".
+        2. Scan the search results.
+        3. **PRIORITY**: Extract an 'encrypted-tbn' image URL. This is the most important step.
+        4. If you find a 'encrypted-tbn' URL, use it as 'imageUrl'.
+        5. If you absolutely cannot find a thumbnail, return null for 'imageUrl'. Do NOT return a direct retailer link (like amazon.com/img.jpg) as it will fail.
+        6. Always provide the 'sourceUrl' (the product page URL) so the user can visit it.
+        
+        JSON Response Format:
         \`\`\`json
         {
-          "imageUrl": "https://example.com/image.jpg",
-          "sourceUrl": "https://example.com/product-page"
+          "imageUrl": "https://encrypted-tbn0.gstatic.com/images?q=...", 
+          "sourceUrl": "https://www.example.com/product/123"
         }
         \`\`\`
-        
-        If no perfect isolated image exists, return the best clear view found.`
+        `
     });
 
     const response = await ai.models.generateContent({
@@ -297,17 +313,26 @@ export const findBetterItemImage = async (query: string, base64Image?: string): 
     // Clean up markdown code blocks if present
     text = text.replace(/```json/g, '').replace(/```/g, '').trim();
 
-    // Robust JSON extraction using Regex to find the first JSON object
+    // Parse JSON
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
         try {
             const data = JSON.parse(jsonMatch[0]);
-            if (data.imageUrl && (data.imageUrl.startsWith('http') || data.imageUrl.startsWith('data:image'))) {
+            
+            // Validate URL format
+            let imgUrl = data.imageUrl;
+            if (imgUrl && (!imgUrl.startsWith('http') || imgUrl.length < 10)) imgUrl = null;
+
+            let srcUrl = data.sourceUrl;
+            if (srcUrl && !srcUrl.startsWith('http')) srcUrl = null;
+
+            // If Gemini returned null for image but found a source, try to fallback or just return what we have
+            if (imgUrl || srcUrl) {
                 return {
                   success: true,
                   data: {
-                    imageUrl: data.imageUrl,
-                    sourceUrl: data.sourceUrl || ''
+                    imageUrl: imgUrl || '', // UI will handle empty/null
+                    sourceUrl: srcUrl || ''
                   }
                 };
             }
@@ -315,43 +340,35 @@ export const findBetterItemImage = async (query: string, base64Image?: string): 
             console.warn("JSON parse error", e);
         }
     }
-    
-    // Fallback: If JSON parsing fails, try to extract a URL directly from text
-    const urlMatch = text.match(/https?:\/\/[^\s"']+\.(?:jpg|jpeg|png|webp)/i);
-    if (urlMatch) {
-        return {
-          success: true,
-          data: {
-            imageUrl: urlMatch[0],
-            sourceUrl: ""
-          }
-        };
+
+    // Fallback: Check grounding chunks for real links if JSON failed or was empty
+    const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
+    if (chunks && chunks.length > 0) {
+        // Try to find a chunk that looks like a product page
+        const firstWeb = chunks.find((c: any) => c.web?.uri)?.web;
+        if (firstWeb) {
+            return {
+                success: true,
+                data: {
+                    imageUrl: '', // No image found in metadata usually
+                    sourceUrl: firstWeb.uri
+                }
+            };
+        }
     }
     
     return {
       success: false,
-      error: "No matching images found.",
-      suggestion: "Try removing specific details like size (e.g. '4T') or add the brand name if missing."
+      error: "No matching items found online.",
+      suggestion: "Try simplifying the name (e.g. 'Pink Floral Pajamas')."
     };
 
   } catch (error: any) {
     console.error("Online Search Error:", error);
-    
-    let msg = "Search failed due to a technical issue.";
-    let suggestion = "Check your internet connection and try again.";
-
-    if (error.message?.includes('400') || error.message?.includes('API key')) {
-      msg = "Service configuration error.";
-      suggestion = "Please verify API Key settings.";
-    } else if (error.message?.includes('quota') || error.message?.includes('429')) {
-      msg = "Search limit reached.";
-      suggestion = "Please try again in a few minutes.";
-    }
-
     return {
       success: false,
-      error: msg,
-      suggestion: suggestion
+      error: "Connection failed.",
+      suggestion: "Please try again."
     };
   }
 };

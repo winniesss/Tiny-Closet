@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Camera, Upload, Loader2, X, ChevronLeft, ChevronRight, Trash2, Sparkles, ExternalLink, AlertTriangle, Search } from 'lucide-react';
+import { Camera, Loader2, X, ChevronLeft, ChevronRight, Trash2, Sparkles, ExternalLink, AlertTriangle, Search, FileText, ImageOff, Link as LinkIcon, Check } from 'lucide-react';
 import { analyzeClothingImage, findBetterItemImage } from '../services/geminiService';
 import { db } from '../db';
 import { ClothingItem, Category, Season } from '../types';
@@ -21,20 +21,27 @@ export const AddItem: React.FC = () => {
   const [searchError, setSearchError] = useState<string | null>(null);
   const [searchSuggestion, setSearchSuggestion] = useState<string | null>(null);
   const [betterImageCandidate, setBetterImageCandidate] = useState<{imageUrl: string, sourceUrl: string} | null>(null);
+  const [imageLoadError, setImageLoadError] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [showPasteUrl, setShowPasteUrl] = useState(false);
+  const [manualUrl, setManualUrl] = useState('');
 
   // Update default search term when item changes
   useEffect(() => {
     setBetterImageCandidate(null);
     setSearchError(null);
     setSearchSuggestion(null);
+    setImageLoadError(false);
+    setShowPasteUrl(false);
+    setManualUrl('');
+    
     if (reviewItems[currentIndex]) {
         const item = reviewItems[currentIndex];
         // Clean up the search term to remove duplicates if description contains brand
         const parts = [
             item.brand && item.brand !== 'Unknown' ? item.brand : '',
             item.color || '',
-            item.category || '', // Added category for better search (e.g. "Top", "Shoes")
+            item.category || '', 
             item.description || '',
             'kids'
         ];
@@ -125,12 +132,11 @@ export const AddItem: React.FC = () => {
     setBetterImageCandidate(null);
     setSearchError(null);
     setSearchSuggestion(null);
+    setImageLoadError(false);
 
     const currentItem = reviewItems[currentIndex];
 
     try {
-      // Pass both the search term and the current image (cropped or original) 
-      // to help the AI find the exact visual match.
       const result = await findBetterItemImage(searchTerm, currentItem.image);
       
       if (result.success && result.data) {
@@ -151,12 +157,34 @@ export const AddItem: React.FC = () => {
   };
 
   const applyBetterImage = () => {
-    if (betterImageCandidate) {
+    if (betterImageCandidate && !imageLoadError && betterImageCandidate.imageUrl) {
       handleUpdateCurrentItem('image', betterImageCandidate.imageUrl);
       setBetterImageCandidate(null);
       setSearchError(null);
       setSearchSuggestion(null);
     }
+  };
+
+  const applyManualUrl = () => {
+      if (!manualUrl.trim()) return;
+      // If we are in the "candidate" view, update the candidate to show preview
+      if (betterImageCandidate) {
+          setBetterImageCandidate({
+              ...betterImageCandidate,
+              imageUrl: manualUrl
+          });
+          setImageLoadError(false); // Reset error state to try loading new URL
+      } else {
+          // Direct update if using the top paste button
+          handleUpdateCurrentItem('image', manualUrl);
+      }
+      setShowPasteUrl(false);
+      setManualUrl('');
+  };
+  
+  const openGoogleSearch = () => {
+      const q = encodeURIComponent(searchTerm);
+      window.open(`https://www.google.com/search?tbm=isch&q=${q}`, '_blank');
   };
 
   const handleSaveAll = async () => {
@@ -185,8 +213,8 @@ export const AddItem: React.FC = () => {
           </div>
           <div>
             <h1 className="text-4xl text-slate-900 mb-3">Add Clothes</h1>
-            <p className="text-slate-500 max-w-[250px] mx-auto text-lg leading-relaxed font-medium">
-                Snap a photo or upload a screenshot.
+            <p className="text-slate-500 max-w-[280px] mx-auto text-lg leading-relaxed font-medium">
+                Snap a photo or upload an <strong>order screenshot</strong> to auto-import items.
             </p>
           </div>
           
@@ -201,15 +229,15 @@ export const AddItem: React.FC = () => {
           <div className="w-full max-w-xs space-y-4">
             <button 
                 onClick={() => fileInputRef.current?.click()}
-                className="w-full bg-sky-400 text-white font-bold py-5 rounded-full shadow-xl hover:shadow-2xl hover:scale-105 transition-all text-lg"
+                className="w-full bg-sky-400 text-white font-bold py-5 rounded-full shadow-xl hover:shadow-2xl hover:scale-105 transition-all text-lg flex items-center justify-center gap-3"
             >
-                Take Photo
+                <Camera size={24} /> Take Photo
             </button>
             <button 
                 onClick={() => fileInputRef.current?.click()}
-                className="w-full bg-white text-slate-700 font-bold py-5 rounded-full shadow-sm hover:shadow-md transition-all text-lg"
+                className="w-full bg-white text-slate-700 font-bold py-5 rounded-full shadow-sm hover:shadow-md transition-all text-lg flex items-center justify-center gap-3"
             >
-                Upload File
+                <FileText size={24} /> Upload Order / File
             </button>
           </div>
         </div>
@@ -227,7 +255,7 @@ export const AddItem: React.FC = () => {
           </div>
         </div>
         <h2 className="text-3xl text-slate-800 mb-2">Analyzing...</h2>
-        <p className="text-slate-500 font-bold">Working magic!</p>
+        <p className="text-slate-500 font-bold">Scanning for clothes...</p>
       </div>
     );
   }
@@ -305,15 +333,56 @@ export const AddItem: React.FC = () => {
                     />
                 </div>
             </div>
+            
+            <div className="flex gap-2">
+                <button 
+                    onClick={handleFindBetterImage}
+                    disabled={isSearchingImage}
+                    className="flex-1 flex items-center justify-center gap-2 py-4 bg-sky-50 hover:bg-sky-100 text-sky-500 text-sm font-bold rounded-2xl transition-all disabled:opacity-50 border border-sky-100"
+                >
+                    {isSearchingImage ? <Loader2 size={18} className="animate-spin" /> : <Sparkles size={18} />}
+                    {isSearchingImage ? 'Searching...' : 'Find Online'}
+                </button>
+                <button 
+                    onClick={() => setShowPasteUrl(!showPasteUrl)}
+                    className={clsx(
+                        "flex-none px-4 flex items-center justify-center rounded-2xl border transition-all",
+                        showPasteUrl 
+                            ? "bg-sky-100 border-sky-200 text-sky-500" 
+                            : "bg-white hover:bg-slate-50 text-slate-400 hover:text-slate-600 border-slate-100"
+                    )}
+                    title="Paste URL"
+                >
+                    <LinkIcon size={18} />
+                </button>
+                <button 
+                    onClick={openGoogleSearch}
+                    className="flex-none px-4 flex items-center justify-center bg-white hover:bg-slate-50 text-slate-400 hover:text-slate-600 rounded-2xl border border-slate-100 transition-all"
+                    title="Open Google Search"
+                >
+                    <ExternalLink size={18} />
+                </button>
+            </div>
 
-            <button 
-                onClick={handleFindBetterImage}
-                disabled={isSearchingImage}
-                className="w-full flex items-center justify-center gap-2 py-4 bg-sky-50 hover:bg-sky-100 text-sky-500 text-sm font-bold rounded-2xl transition-all disabled:opacity-50 border border-sky-100"
-            >
-                {isSearchingImage ? <Loader2 size={18} className="animate-spin" /> : <Sparkles size={18} />}
-                {isSearchingImage ? 'Searching...' : 'Find Online Image'}
-            </button>
+            {showPasteUrl && (
+                <div className="mt-4 animate-in fade-in slide-in-from-top-2">
+                    <div className="flex gap-2">
+                        <input 
+                            type="text"
+                            value={manualUrl}
+                            onChange={(e) => setManualUrl(e.target.value)}
+                            placeholder="Paste exact image address here..."
+                            className="flex-1 px-4 py-3 bg-white rounded-xl text-sm font-medium border border-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-200"
+                        />
+                        <button 
+                            onClick={applyManualUrl}
+                            className="px-4 py-2 bg-slate-800 text-white font-bold text-sm rounded-xl hover:bg-slate-700"
+                        >
+                            Use
+                        </button>
+                    </div>
+                </div>
+            )}
             
             {searchError && (
               <div className="mt-4 p-4 bg-red-50 border border-red-100 rounded-2xl animate-in fade-in slide-in-from-top-2">
@@ -335,26 +404,71 @@ export const AddItem: React.FC = () => {
 
             {betterImageCandidate && (
                 <div className="mt-4 p-4 bg-white rounded-2xl shadow-lg border border-sky-100 animate-in fade-in slide-in-from-top-4">
-                    <p className="text-xs font-bold text-pink-400 uppercase tracking-wider mb-3">Better match found</p>
-                    <div className="flex gap-4 items-center">
-                        <div className="w-20 h-20 shrink-0 bg-slate-50 rounded-xl p-2">
-                            <img src={betterImageCandidate.imageUrl} alt="Found online" className="w-full h-full object-contain" />
+                    <p className="text-xs font-bold text-pink-400 uppercase tracking-wider mb-3">
+                        {imageLoadError || !betterImageCandidate.imageUrl 
+                            ? "Found source, but image blocked" 
+                            : "Better match found"}
+                    </p>
+                    <div className="flex gap-4 items-start">
+                        <div className="w-20 h-20 shrink-0 bg-slate-50 rounded-xl p-2 flex items-center justify-center overflow-hidden border border-slate-100">
+                            {betterImageCandidate.imageUrl && !imageLoadError ? (
+                                <img 
+                                    src={betterImageCandidate.imageUrl} 
+                                    alt="Found online" 
+                                    className="w-full h-full object-contain" 
+                                    onError={() => setImageLoadError(true)}
+                                />
+                            ) : (
+                                <ImageOff className="text-slate-300" size={24} />
+                            )}
                         </div>
                         <div className="flex-1 min-w-0">
-                            <button 
-                                onClick={applyBetterImage} 
-                                className="w-full mb-2 bg-sky-400 text-white px-4 py-2.5 rounded-xl font-bold text-sm shadow-md hover:scale-105 transition"
-                            >
-                                Use This
-                            </button>
-                            {betterImageCandidate.sourceUrl && (
+                            {(!imageLoadError && betterImageCandidate.imageUrl) ? (
+                                <button 
+                                    onClick={applyBetterImage} 
+                                    className="w-full mb-2 bg-sky-400 text-white px-4 py-2.5 rounded-xl font-bold text-sm shadow-md hover:scale-105 transition flex items-center justify-center gap-2"
+                                >
+                                    <Check size={16} /> Use This
+                                </button>
+                            ) : (
+                                <div className="space-y-2">
+                                    <button 
+                                        onClick={openGoogleSearch}
+                                        className="w-full bg-white text-slate-700 border border-slate-200 px-4 py-2.5 rounded-xl font-bold text-xs shadow-sm hover:bg-slate-50 transition flex items-center justify-center gap-2"
+                                    >
+                                        <Search size={14} /> Search Google
+                                    </button>
+                                    
+                                    {/* Inline Paste Fallback - Only shown when image is blocked/missing */}
+                                    <div className="bg-slate-50 p-2 rounded-xl border border-slate-100">
+                                        <p className="text-[10px] font-bold text-slate-400 mb-1 ml-1 uppercase">Paste Image Address:</p>
+                                        <div className="flex gap-1">
+                                            <input 
+                                                type="text"
+                                                value={manualUrl}
+                                                onChange={(e) => setManualUrl(e.target.value)}
+                                                placeholder="https://..."
+                                                className="flex-1 px-2 py-1.5 bg-white rounded-lg text-xs font-medium border border-slate-200 focus:outline-none focus:ring-1 focus:ring-sky-200"
+                                            />
+                                            <button 
+                                                onClick={applyManualUrl}
+                                                className="px-3 py-1.5 bg-slate-800 text-white font-bold text-xs rounded-lg hover:bg-slate-700"
+                                            >
+                                                Apply
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                            
+                            {betterImageCandidate.sourceUrl && !imageLoadError && (
                                 <a 
                                     href={betterImageCandidate.sourceUrl} 
                                     target="_blank" 
                                     rel="noopener noreferrer" 
-                                    className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600 justify-center"
+                                    className="block mt-2 text-center text-[10px] text-slate-400 hover:text-slate-600"
                                 >
-                                    Source <ExternalLink size={10}/>
+                                    Visit Source Page <ExternalLink size={10} className="inline"/>
                                 </a>
                             )}
                         </div>

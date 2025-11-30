@@ -41,7 +41,8 @@ const getAgeInMonths = (birthDateString: string): number => {
 };
 
 // Heuristic to convert size label to max age in months
-const parseSizeToMaxMonths = (size: string): number | null => {
+const parseSizeToMaxMonths = (size: string | undefined): number | null => {
+    if (!size) return null;
     const s = size.toUpperCase().replace(/\s/g, '');
     
     // Handle "Months" (e.g. "6-9M", "3M")
@@ -151,6 +152,9 @@ export const Dashboard: React.FC = () => {
   // Identify outgrown items
   const outgrownItems = allItems?.filter(item => {
     if (!currentKid?.birthDate) return false;
+    // Skip if sizeLabel is missing
+    if (!item.sizeLabel) return false;
+    
     const currentAgeMonths = getAgeInMonths(currentKid.birthDate);
     const maxMonths = parseSizeToMaxMonths(item.sizeLabel);
     
