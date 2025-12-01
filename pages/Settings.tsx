@@ -316,7 +316,7 @@ export const Settings: React.FC = () => {
                 onClick={handleReload}
                 className="inline-flex items-center gap-2 text-sky-400 text-xs font-bold bg-white px-4 py-2 rounded-full shadow-sm hover:bg-sky-50 transition-colors"
                 >
-                <Power size={12} /> Force Reload App
+                <Power size={12} /> Update
                 </button>
             </div>
         </div>
