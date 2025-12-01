@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Camera, Loader2, X, ChevronLeft, ChevronRight, Trash2, Sparkles, ExternalLink, AlertTriangle, Search, FileText, ImageOff, Link as LinkIcon, Check, Crop as CropIcon, ZoomIn, Move } from 'lucide-react';
+import { Camera, Loader2, X, ChevronLeft, ChevronRight, Trash2, Sparkles, ExternalLink, AlertTriangle, Search, FileText, ImageOff, Link as LinkIcon, Check, Crop as CropIcon, ZoomIn, Move, ArrowLeft } from 'lucide-react';
 import { analyzeClothingImage, findBetterItemImage } from '../services/geminiService';
 import { db } from '../db';
 import { ClothingItem, Category, Season } from '../types';
@@ -11,8 +11,8 @@ export const AddItem: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   
-  // Steps: upload -> crop -> analyzing -> review
-  const [step, setStep] = useState<'upload' | 'crop' | 'analyzing' | 'review'>('upload');
+  // Steps: upload -> preview -> crop -> analyzing -> review
+  const [step, setStep] = useState<'upload' | 'preview' | 'crop' | 'analyzing' | 'review'>('upload');
   
   // Image States
   const [originalImage, setOriginalImage] = useState<string | null>(null);
@@ -73,7 +73,7 @@ export const AddItem: React.FC = () => {
       setOriginalImage(base64);
       setCropScale(1);
       setCropPos({ x: 0, y: 0 });
-      setStep('crop');
+      setStep('preview');
       
       // Reset input so same file can be selected again if needed
       if (e.target) e.target.value = '';
@@ -122,56 +122,6 @@ export const AddItem: React.FC = () => {
 
     const img = imgRef.current;
     
-    // We need to draw the image as it appears in the container.
-    // The image CSS transform is: translate(cropPos.x, cropPos.y) scale(cropScale)
-    // The origin of the transform is typically center, but here we implemented drag via top/left translation conceptually.
-    // Let's rely on the visual offset.
-    
-    // Calculate the drawn dimensions
-    const drawnWidth = img.naturalWidth * cropScale;
-    const drawnHeight = img.naturalHeight * cropScale;
-
-    // We need to find the center of the image relative to the container center
-    // But our simplified drag logic just offsets x/y.
-    // If the image was centered initially, cropPos (0,0) implies center.
-    // Let's assume standard CSS absolute positioning logic:
-    // left: 50% + cropPos.x - (drawnWidth / 2)
-    
-    // Actually, simpler mapping:
-    // The user sees the image at container coordinates (cx, cy).
-    // cx = containerWidth/2 + cropPos.x - (imgWidth*scale)/2
-    // cy = containerHeight/2 + cropPos.y - (imgHeight*scale)/2
-    
-    const cx = (containerRect.width / 2) + cropPos.x - ((containerRect.width * cropScale) / 2); // Wait, image size depends on object-fit or natural?
-    
-    // Let's retry: The image in the UI is rendered with:
-    // style={{ width: '100%', height: '100%', objectFit: 'contain', transform: ... }}
-    // No, I'm using an absolute image.
-    
-    // Let's restart the math based on the actual render code below:
-    // <img ... style={{ transform: `translate(${cropPos.x}px, ${cropPos.y}px) scale(${cropScale})` }} />
-    // The image is centered by flexbox in the container, then transformed.
-    
-    ctx.save();
-    ctx.scale(scaleFactor, scaleFactor);
-    
-    // Move to center of canvas
-    ctx.translate(containerRect.width / 2, containerRect.height / 2);
-    
-    // Apply user transforms
-    ctx.translate(cropPos.x, cropPos.y);
-    ctx.scale(cropScale, cropScale);
-    
-    // Draw image centered
-    // We need to know the rendered size of the image before scale. 
-    // In the UI, the image has `max-width: 100%; max-height: 100%` but is not forced to fill.
-    // It's tricky to match exact pixels without fixed dimensions.
-    // Let's force the image to be drawn "naturally" scaled to fit the container first?
-    
-    // Better strategy for robustness:
-    // Draw the image centered at its natural aspect ratio such that it fits within the container (contain), 
-    // THEN apply the user's delta transforms.
-    
     const aspect = img.naturalWidth / img.naturalHeight;
     const containerAspect = containerRect.width / containerRect.height;
     
@@ -186,6 +136,16 @@ export const AddItem: React.FC = () => {
         renderH = containerRect.height;
         renderW = containerRect.height * aspect;
     }
+    
+    ctx.save();
+    ctx.scale(scaleFactor, scaleFactor);
+    
+    // Move to center of canvas
+    ctx.translate(containerRect.width / 2, containerRect.height / 2);
+    
+    // Apply user transforms
+    ctx.translate(cropPos.x, cropPos.y);
+    ctx.scale(cropScale, cropScale);
     
     ctx.drawImage(
         img, 
@@ -396,15 +356,53 @@ export const AddItem: React.FC = () => {
     );
   }
 
+  if (step === 'preview') {
+      return (
+          <div className="h-screen flex flex-col bg-slate-900 relative">
+               {/* Header */}
+               <div className="absolute top-0 left-0 right-0 p-4 z-10 flex justify-between items-center text-white">
+                  <button onClick={() => setStep('upload')} className="p-2 bg-black/20 backdrop-blur rounded-full hover:bg-black/30 transition-colors">
+                      <X size={24} />
+                  </button>
+               </div>
+               
+               {/* Image Viewer */}
+               <div className="flex-1 flex items-center justify-center p-6 bg-slate-900/50">
+                  {originalImage && (
+                    <img src={originalImage} alt="Preview" className="max-w-full max-h-full object-contain shadow-2xl rounded-lg" />
+                  )}
+               </div>
+  
+               {/* Footer Actions */}
+               <div className="p-6 pb-12 bg-slate-900 flex gap-4 justify-center items-center">
+                   <button 
+                      onClick={() => setStep('crop')}
+                      className="flex flex-col items-center gap-1 text-slate-400 hover:text-white transition-colors p-4"
+                   >
+                      <CropIcon size={24} />
+                      <span className="text-xs font-bold">Crop</span>
+                   </button>
+  
+                   <button 
+                      onClick={() => startAnalysis(originalImage!)}
+                      className="flex-1 bg-sky-400 text-white font-bold py-4 rounded-full shadow-lg hover:bg-sky-500 transition-all flex items-center justify-center gap-2"
+                   >
+                      <Sparkles size={20} /> Analyze
+                   </button>
+               </div>
+          </div>
+      );
+  }
+
   if (step === 'crop') {
       return (
           <div className="h-screen flex flex-col bg-slate-900 overflow-hidden touch-none">
               <div className="flex-none p-4 flex justify-between items-center bg-slate-900 z-10">
                   <button 
-                    onClick={() => setStep('upload')}
+                    onClick={() => setStep('preview')}
                     className="p-2 text-white/70 hover:text-white"
                   >
-                      <X size={24} />
+                      <ArrowLeft size={24} />
                   </button>
                   <h1 className="text-white font-bold">Adjust Photo</h1>
                   <button 
