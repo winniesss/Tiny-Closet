@@ -1,5 +1,5 @@
 import React from 'react';
-import { HashRouter, Routes, Route } from 'react-router-dom';
+import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Navbar } from './components/Navbar';
 import { Dashboard } from './pages/Dashboard';
 import { Closet } from './pages/Closet';
@@ -17,6 +17,8 @@ const App: React.FC = () => {
           <Route path="/add" element={<AddItem />} />
           <Route path="/stats" element={<Stats />} />
           <Route path="/settings" element={<Settings />} />
+          {/* Catch all unknown routes and redirect to home */}
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
         <Navbar />
       </div>

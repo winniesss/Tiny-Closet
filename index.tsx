@@ -27,6 +27,18 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
     console.error("Uncaught error:", error, errorInfo);
   }
 
+  handleSafeReload = () => {
+    // Navigate to root to clear potentially broken hashes/routes
+    // Using a more aggressive reset that checks pathname
+    const url = new URL(window.location.href);
+    if (url.pathname !== '/' && !url.pathname.endsWith('/index.html')) {
+         url.pathname = '/';
+    }
+    url.hash = '';
+    url.search = '';
+    window.location.href = url.toString();
+  };
+
   render() {
     if (this.state.hasError) {
       return (
@@ -41,10 +53,10 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
               {this.state.error?.message || "Unknown Error"}
             </div>
             <button 
-              onClick={() => window.location.reload()} 
+              onClick={this.handleSafeReload}
               className="bg-sky-400 text-white font-bold px-8 py-3 rounded-full hover:bg-sky-500 transition-colors shadow-lg hover:shadow-sky-200"
             >
-              Reload
+              Reset to Home
             </button>
           </div>
         </div>
