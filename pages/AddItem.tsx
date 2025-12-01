@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Camera, Loader2, X, ChevronLeft, ChevronRight, Trash2, Sparkles, ExternalLink, AlertTriangle, Search, FileText, ImageOff, Link as LinkIcon, Check } from 'lucide-react';
+import { Camera, Loader2, X, ChevronLeft, ChevronRight, Trash2, Sparkles, ExternalLink, AlertTriangle, Search, FileText, ImageOff, Link as LinkIcon, Check, Crop as CropIcon, ZoomIn, Move } from 'lucide-react';
 import { analyzeClothingImage, findBetterItemImage } from '../services/geminiService';
 import { db } from '../db';
 import { ClothingItem, Category, Season } from '../types';
@@ -11,13 +11,26 @@ export const AddItem: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   
-  const [step, setStep] = useState<'upload' | 'analyzing' | 'review'>('upload');
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [analysisError, setAnalysisError] = useState<string | null>(null);
+  // Steps: upload -> crop -> analyzing -> review
+  const [step, setStep] = useState<'upload' | 'crop' | 'analyzing' | 'review'>('upload');
   
+  // Image States
+  const [originalImage, setOriginalImage] = useState<string | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  
+  // Crop States
+  const [cropScale, setCropScale] = useState(1);
+  const [cropPos, setCropPos] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStart = useRef({ x: 0, y: 0 });
+  const imgRef = useRef<HTMLImageElement>(null);
+  const cropContainerRef = useRef<HTMLDivElement>(null);
+
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [reviewItems, setReviewItems] = useState<Partial<ClothingItem>[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
 
+  // Search/Better Image States
   const [isSearchingImage, setIsSearchingImage] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [searchSuggestion, setSearchSuggestion] = useState<string | null>(null);
@@ -38,7 +51,6 @@ export const AddItem: React.FC = () => {
     
     if (reviewItems[currentIndex]) {
         const item = reviewItems[currentIndex];
-        // Clean up the search term to remove duplicates if description contains brand
         const parts = [
             item.brand && item.brand !== 'Unknown' ? item.brand : '',
             item.color || '',
@@ -46,7 +58,6 @@ export const AddItem: React.FC = () => {
             item.description || '',
             'kids'
         ];
-        // Filter empty and join
         const term = parts.filter(p => p).join(' ').trim();
         setSearchTerm(term);
     }
@@ -59,6 +70,140 @@ export const AddItem: React.FC = () => {
     const reader = new FileReader();
     reader.onloadend = async () => {
       const base64 = reader.result as string;
+      setOriginalImage(base64);
+      setCropScale(1);
+      setCropPos({ x: 0, y: 0 });
+      setStep('crop');
+      
+      // Reset input so same file can be selected again if needed
+      if (e.target) e.target.value = '';
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // --- Crop Logic ---
+  
+  const handlePointerDown = (e: React.PointerEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+    dragStart.current = { x: e.clientX - cropPos.x, y: e.clientY - cropPos.y };
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (!isDragging) return;
+    e.preventDefault();
+    setCropPos({
+      x: e.clientX - dragStart.current.x,
+      y: e.clientY - dragStart.current.y
+    });
+  };
+
+  const handlePointerUp = () => {
+    setIsDragging(false);
+  };
+
+  const confirmCrop = () => {
+    if (!imgRef.current || !cropContainerRef.current) return;
+
+    const canvas = document.createElement('canvas');
+    // Set output resolution (e.g., 2x the display size for sharpness)
+    const scaleFactor = 2;
+    const containerRect = cropContainerRef.current.getBoundingClientRect();
+    
+    canvas.width = containerRect.width * scaleFactor;
+    canvas.height = containerRect.height * scaleFactor;
+    
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // Fill white background
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    const img = imgRef.current;
+    
+    // We need to draw the image as it appears in the container.
+    // The image CSS transform is: translate(cropPos.x, cropPos.y) scale(cropScale)
+    // The origin of the transform is typically center, but here we implemented drag via top/left translation conceptually.
+    // Let's rely on the visual offset.
+    
+    // Calculate the drawn dimensions
+    const drawnWidth = img.naturalWidth * cropScale;
+    const drawnHeight = img.naturalHeight * cropScale;
+
+    // We need to find the center of the image relative to the container center
+    // But our simplified drag logic just offsets x/y.
+    // If the image was centered initially, cropPos (0,0) implies center.
+    // Let's assume standard CSS absolute positioning logic:
+    // left: 50% + cropPos.x - (drawnWidth / 2)
+    
+    // Actually, simpler mapping:
+    // The user sees the image at container coordinates (cx, cy).
+    // cx = containerWidth/2 + cropPos.x - (imgWidth*scale)/2
+    // cy = containerHeight/2 + cropPos.y - (imgHeight*scale)/2
+    
+    const cx = (containerRect.width / 2) + cropPos.x - ((containerRect.width * cropScale) / 2); // Wait, image size depends on object-fit or natural?
+    
+    // Let's retry: The image in the UI is rendered with:
+    // style={{ width: '100%', height: '100%', objectFit: 'contain', transform: ... }}
+    // No, I'm using an absolute image.
+    
+    // Let's restart the math based on the actual render code below:
+    // <img ... style={{ transform: `translate(${cropPos.x}px, ${cropPos.y}px) scale(${cropScale})` }} />
+    // The image is centered by flexbox in the container, then transformed.
+    
+    ctx.save();
+    ctx.scale(scaleFactor, scaleFactor);
+    
+    // Move to center of canvas
+    ctx.translate(containerRect.width / 2, containerRect.height / 2);
+    
+    // Apply user transforms
+    ctx.translate(cropPos.x, cropPos.y);
+    ctx.scale(cropScale, cropScale);
+    
+    // Draw image centered
+    // We need to know the rendered size of the image before scale. 
+    // In the UI, the image has `max-width: 100%; max-height: 100%` but is not forced to fill.
+    // It's tricky to match exact pixels without fixed dimensions.
+    // Let's force the image to be drawn "naturally" scaled to fit the container first?
+    
+    // Better strategy for robustness:
+    // Draw the image centered at its natural aspect ratio such that it fits within the container (contain), 
+    // THEN apply the user's delta transforms.
+    
+    const aspect = img.naturalWidth / img.naturalHeight;
+    const containerAspect = containerRect.width / containerRect.height;
+    
+    let renderW, renderH;
+    
+    if (aspect > containerAspect) {
+        // Image is wider than container
+        renderW = containerRect.width;
+        renderH = containerRect.width / aspect;
+    } else {
+        // Image is taller than container
+        renderH = containerRect.height;
+        renderW = containerRect.height * aspect;
+    }
+    
+    ctx.drawImage(
+        img, 
+        -renderW / 2, 
+        -renderH / 2, 
+        renderW, 
+        renderH
+    );
+    
+    ctx.restore();
+
+    const croppedBase64 = canvas.toDataURL('image/jpeg', 0.9);
+    startAnalysis(croppedBase64);
+  };
+
+  // --- End Crop Logic ---
+
+  const startAnalysis = async (base64: string) => {
       setImagePreview(base64);
       setStep('analyzing');
       setAnalysisError(null);
@@ -91,8 +236,6 @@ export const AddItem: React.FC = () => {
         setCurrentIndex(0);
         setStep('review');
       }
-    };
-    reader.readAsDataURL(file);
   };
 
   const handleUpdateCurrentItem = (field: keyof ClothingItem, value: any) => {
@@ -168,15 +311,13 @@ export const AddItem: React.FC = () => {
 
   const applyManualUrl = () => {
       if (!manualUrl.trim()) return;
-      // If we are in the "candidate" view, update the candidate to show preview
       if (betterImageCandidate) {
           setBetterImageCandidate({
               ...betterImageCandidate,
               imageUrl: manualUrl
           });
-          setImageLoadError(false); // Reset error state to try loading new URL
+          setImageLoadError(false);
       } else {
-          // Direct update if using the top paste button
           handleUpdateCurrentItem('image', manualUrl);
       }
       setShowPasteUrl(false);
@@ -253,6 +394,89 @@ export const AddItem: React.FC = () => {
         </div>
       </div>
     );
+  }
+
+  if (step === 'crop') {
+      return (
+          <div className="h-screen flex flex-col bg-slate-900 overflow-hidden touch-none">
+              <div className="flex-none p-4 flex justify-between items-center bg-slate-900 z-10">
+                  <button 
+                    onClick={() => setStep('upload')}
+                    className="p-2 text-white/70 hover:text-white"
+                  >
+                      <X size={24} />
+                  </button>
+                  <h1 className="text-white font-bold">Adjust Photo</h1>
+                  <button 
+                    onClick={confirmCrop}
+                    className="p-2 text-sky-400 font-bold hover:text-sky-300"
+                  >
+                      Next
+                  </button>
+              </div>
+
+              <div className="flex-1 relative flex items-center justify-center p-6">
+                  {/* Crop Container - 3:4 Aspect Ratio */}
+                  <div 
+                    ref={cropContainerRef}
+                    className="relative w-full max-w-sm aspect-[3/4] bg-slate-800 overflow-hidden rounded-2xl shadow-2xl border-2 border-white/20 touch-none"
+                    onPointerDown={handlePointerDown}
+                    onPointerMove={handlePointerMove}
+                    onPointerUp={handlePointerUp}
+                    onPointerLeave={handlePointerUp}
+                  >
+                      {originalImage && (
+                          <div className="w-full h-full flex items-center justify-center pointer-events-none">
+                            <img 
+                                ref={imgRef}
+                                src={originalImage} 
+                                alt="Crop Target" 
+                                className="max-w-full max-h-full object-contain pointer-events-none select-none transition-transform duration-75 ease-out"
+                                style={{ 
+                                    transform: `translate(${cropPos.x}px, ${cropPos.y}px) scale(${cropScale})` 
+                                }}
+                            />
+                          </div>
+                      )}
+                      
+                      {/* Guide Overlay */}
+                      <div className="absolute inset-0 pointer-events-none border border-white/30 grid grid-cols-3 grid-rows-3">
+                          <div className="border-r border-b border-white/10"></div>
+                          <div className="border-r border-b border-white/10"></div>
+                          <div className="border-b border-white/10"></div>
+                          <div className="border-r border-b border-white/10"></div>
+                          <div className="border-r border-b border-white/10"></div>
+                          <div className="border-b border-white/10"></div>
+                          <div className="border-r border-white/10"></div>
+                          <div className="border-r border-white/10"></div>
+                          <div></div>
+                      </div>
+                  </div>
+              </div>
+
+              <div className="flex-none bg-slate-900 p-6 pb-12">
+                  <div className="max-w-xs mx-auto space-y-4">
+                      <div className="flex items-center gap-4 text-white/50">
+                          <ZoomIn size={16} />
+                          <input 
+                            type="range" 
+                            min="1" 
+                            max="3" 
+                            step="0.05"
+                            value={cropScale}
+                            onChange={(e) => setCropScale(parseFloat(e.target.value))}
+                            className="w-full accent-sky-400 h-1 bg-white/20 rounded-lg appearance-none cursor-pointer"
+                          />
+                      </div>
+                      <div className="flex justify-center">
+                          <p className="text-xs text-white/40 flex items-center gap-2">
+                              <Move size={12} /> Drag to position
+                          </p>
+                      </div>
+                  </div>
+              </div>
+          </div>
+      );
   }
 
   if (step === 'analyzing') {
