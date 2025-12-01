@@ -9,6 +9,7 @@ import clsx from 'clsx';
 export const AddItem: React.FC = () => {
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
   
   const [step, setStep] = useState<'upload' | 'analyzing' | 'review'>('upload');
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -220,6 +221,15 @@ export const AddItem: React.FC = () => {
           
           <input 
             type="file" 
+            ref={cameraInputRef} 
+            onChange={handleFileChange} 
+            accept="image/*" 
+            capture="environment"
+            className="hidden" 
+          />
+          
+          <input 
+            type="file" 
             ref={fileInputRef} 
             onChange={handleFileChange} 
             accept="image/*" 
@@ -228,7 +238,7 @@ export const AddItem: React.FC = () => {
           
           <div className="w-full max-w-xs space-y-4">
             <button 
-                onClick={() => fileInputRef.current?.click()}
+                onClick={() => cameraInputRef.current?.click()}
                 className="w-full bg-sky-400 text-white font-bold py-5 rounded-full shadow-xl hover:shadow-2xl hover:scale-105 transition-all text-lg flex items-center justify-center gap-3"
             >
                 <Camera size={24} /> Take Photo
