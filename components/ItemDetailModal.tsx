@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { X, Archive, RotateCcw, Pencil, Trash2, Check, Save } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { X, Archive, RotateCcw, Pencil, Trash2, Check, Save, Camera } from 'lucide-react';
 import { ClothingItem, Category, Season } from '../types';
 import { db } from '../db';
 import clsx from 'clsx';
@@ -13,6 +13,7 @@ interface Props {
 export const ItemDetailModal: React.FC<Props> = ({ item, onClose, onToggleArchive }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [formData, setFormData] = useState<Partial<ClothingItem>>({});
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (item) {
@@ -45,6 +46,17 @@ export const ItemDetailModal: React.FC<Props> = ({ item, onClose, onToggleArchiv
     setFormData({ ...formData, seasons: newSeasons });
   };
 
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setFormData(prev => ({ ...prev, image: reader.result as string }));
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
   const formatDate = (timestamp: number) => {
     return new Date(timestamp).toLocaleDateString(undefined, {
       year: 'numeric',
@@ -58,7 +70,7 @@ export const ItemDetailModal: React.FC<Props> = ({ item, onClose, onToggleArchiv
       <div className="bg-white rounded-[2.5rem] w-full max-w-md overflow-hidden shadow-2xl relative flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-300">
         
         {/* Image Header - Reduced height and used object-contain */}
-        <div className="relative w-full h-72 bg-orange-50 shrink-0">
+        <div className="relative w-full h-72 bg-orange-50 shrink-0 group">
             <img src={formData.image || item.image} className="w-full h-full object-contain p-4" alt="Detail" />
             
             <button 
@@ -77,7 +89,25 @@ export const ItemDetailModal: React.FC<Props> = ({ item, onClose, onToggleArchiv
                 </button>
             )}
 
-            {item.isArchived && (
+            {isEditing && (
+                <div className="absolute inset-0 bg-black/10 flex items-center justify-center z-20">
+                    <button 
+                        onClick={() => fileInputRef.current?.click()}
+                        className="bg-white text-slate-800 px-6 py-3 rounded-full font-bold shadow-lg flex items-center gap-2 hover:scale-105 transition-transform"
+                    >
+                        <Camera size={20} /> Change Photo
+                    </button>
+                    <input 
+                        type="file" 
+                        ref={fileInputRef} 
+                        className="hidden" 
+                        accept="image/*"
+                        onChange={handleImageChange}
+                    />
+                </div>
+            )}
+
+            {item.isArchived && !isEditing && (
                 <div className="absolute bottom-4 left-4 bg-slate-800/80 backdrop-blur text-white px-3 py-1 rounded-full text-xs font-bold flex items-center gap-2">
                     <Archive size={12} /> Archived
                 </div>
