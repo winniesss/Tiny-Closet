@@ -55,11 +55,13 @@ const parseSizeToMaxMonths = (size: string | undefined): number | null => {
         }
     }
     
-    // Handle "Years" / "Toddler" (e.g. "2T", "3Y", "4")
+    // Handle "Years" / "Toddler" (e.g. "2T", "3Y", "4", "1-2Y")
     if (s.includes('T') || s.includes('Y')) {
         const numbers = s.match(/\d+/g);
         if (numbers && numbers.length > 0) {
-            return parseInt(numbers[0], 10) * 12;
+            // Take the last number to handle ranges (e.g. "1-2Y" -> take 2).
+            // Multiply by 12 for months.
+            return parseInt(numbers[numbers.length - 1], 10) * 12;
         }
     }
 
@@ -158,7 +160,7 @@ export const Dashboard: React.FC = () => {
     const currentAgeMonths = getAgeInMonths(currentKid.birthDate);
     const maxMonths = parseSizeToMaxMonths(item.sizeLabel);
     
-    // If we successfully parsed a size, and current age is > size + buffer (e.g. 2 months grace)
+    // If we successfully parsed a size, and current age is > size + buffer (e.g. 1 month grace)
     if (maxMonths !== null && currentAgeMonths > maxMonths + 1) {
         return true;
     }
