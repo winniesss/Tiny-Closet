@@ -6,7 +6,7 @@ const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 const itemSchema: Schema = {
   type: Type.OBJECT,
   properties: {
-    brand: { type: Type.STRING, description: "Brand name. If screenshot, extract exact brand text from the item row." },
+    brand: { type: Type.STRING, description: "Brand name. If screenshot, extract exact brand text visible in the image. If not visible, infer from style or return 'Unknown'." },
     sizeLabel: { type: Type.STRING, description: "Size on tag (e.g., 2T, 6M, 5Y). If screenshot, look for 'Size: X' text." },
     color: { type: Type.STRING, description: "Primary color. Infer from image or text description." },
     category: { 
@@ -26,11 +26,11 @@ const itemSchema: Schema = {
       items: { type: Type.STRING, enum: [Season.Spring, Season.Summer, Season.Fall, Season.Winter, Season.All] },
       description: "Suitable seasons."
     },
-    description: { type: Type.STRING, description: "Detailed product name. Capture exact text from screenshot if available." },
+    description: { type: Type.STRING, description: "Detailed product name. Capture exact text from screenshot if available (e.g. 'Floral Cotton Dress')." },
     box_2d: {
       type: Type.ARRAY,
       items: { type: Type.INTEGER },
-      description: "The TIGHTEST POSSIBLE bounding box [ymin, xmin, ymax, xmax] (0-1000) encompassing ONLY the garment. Exclude hangers, background, and white padding."
+      description: "The EXACT bounding box [ymin, xmin, ymax, xmax] (0-1000). Crop TIGHTLY to the garment. Exclude all UI, text, buttons, and whitespace padding."
     }
   },
   required: ["category", "color", "seasons", "description"],
@@ -57,48 +57,63 @@ export interface ImageSearchResult {
   suggestion?: string;
 }
 
+export interface AnalyzedItem {
+  brand?: string;
+  sizeLabel?: string;
+  color: string;
+  category: Category;
+  seasons: Season[];
+  description: string;
+  box_2d?: [number, number, number, number];
+  image?: string;
+}
+
 /**
- * Crops a specific region from a base64 image.
+ * Crops a specific region from a base64 image with precision.
  * @param base64 The full source image
  * @param box [ymin, xmin, ymax, xmax] in 0-1000 scale
- * @param paddingPct Optional percentage of padding to add. Defaults to 0 for strict cropping.
+ * @param paddingPct Optional percentage of padding to add (e.g., 0.01 for 1%).
  */
-const cropImage = (base64: string, box: number[], paddingPct: number = 0): Promise<string> => {
+const cropImage = (base64: string, box: number[], paddingPct: number = 0.01): Promise<string> => {
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
-      const [ymin, xmin, ymax, xmax] = box;
+      // Clamp coordinates to safe 0-1000 range
+      let [ymin, xmin, ymax, xmax] = box;
+      ymin = Math.max(0, Math.min(1000, ymin));
+      xmin = Math.max(0, Math.min(1000, xmin));
+      ymax = Math.max(0, Math.min(1000, ymax));
+      xmax = Math.max(0, Math.min(1000, xmax));
+
       const w = img.naturalWidth;
       const h = img.naturalHeight;
 
       // Convert 1000 scale to pixels
-      const y = (ymin / 1000) * h;
-      const x = (xmin / 1000) * w;
-      const boxH = ((ymax - ymin) / 1000) * h;
-      const boxW = ((xmax - xmin) / 1000) * w;
+      const y1 = (ymin / 1000) * h;
+      const x1 = (xmin / 1000) * w;
+      const y2 = (ymax / 1000) * h;
+      const x2 = (xmax / 1000) * w;
+
+      const boxW = x2 - x1;
+      const boxH = y2 - y1;
 
       // Validate dimensions to prevent 0-width crops or tiny noise
-      if (boxW < 5 || boxH < 5) {
-        // Too small to be valid, return original or handle error
+      if (boxW < 10 || boxH < 10) {
         resolve(base64); 
         return;
       }
 
-      // Calculate padding pixels based on box size
+      // Calculate padding pixels
       const padX = boxW * paddingPct;
       const padY = boxH * paddingPct;
 
-      // Calculate final start coordinates with clamping to 0
-      const finalX = Math.max(0, x - padX);
-      const finalY = Math.max(0, y - padY);
+      // Calculate final coordinates with clamping
+      // round to integers for crisp canvas drawing
+      const finalX = Math.max(0, Math.floor(x1 - padX));
+      const finalY = Math.max(0, Math.floor(y1 - padY));
       
-      // Calculate desired final width/height including padding
-      let finalW = boxW + (padX * 2);
-      let finalH = boxH + (padY * 2);
-
-      // Clamp width/height so we don't exceed source image boundaries
-      if (finalX + finalW > w) finalW = w - finalX;
-      if (finalY + finalH > h) finalH = h - finalY;
+      const finalW = Math.min(w - finalX, Math.ceil(boxW + (padX * 2)));
+      const finalH = Math.min(h - finalY, Math.ceil(boxH + (padY * 2)));
 
       // Final safety check
       if (finalW <= 0 || finalH <= 0) {
@@ -116,21 +131,19 @@ const cropImage = (base64: string, box: number[], paddingPct: number = 0): Promi
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = 'high';
 
-        // Fill white background first (safe default for transparent PNGs)
+        // Fill white background (standard for product images)
         ctx.fillStyle = '#FFFFFF';
         ctx.fillRect(0, 0, finalW, finalH);
         
-        // Draw the specific region from the source image onto the canvas
         ctx.drawImage(
           img, 
-          finalX, finalY,   // Source start X, Y
-          finalW, finalH,   // Source width, height
-          0, 0,             // Destination start X, Y
-          finalW, finalH    // Destination width, height
+          finalX, finalY,   // Source start
+          finalW, finalH,   // Source dim
+          0, 0,             // Dest start
+          finalW, finalH    // Dest dim
         );
         
-        // Use higher quality JPEG
-        resolve(canvas.toDataURL('image/jpeg', 0.98)); 
+        resolve(canvas.toDataURL('image/jpeg', 0.95)); 
       } else {
         resolve(base64); 
       }
@@ -140,7 +153,7 @@ const cropImage = (base64: string, box: number[], paddingPct: number = 0): Promi
   });
 };
 
-export const analyzeClothingImage = async (base64Image: string): Promise<any[]> => {
+export const analyzeClothingImage = async (base64Image: string): Promise<AnalyzedItem[]> => {
   // Remove header if present for API
   const cleanBase64 = base64Image.split(',')[1] || base64Image;
 
@@ -158,22 +171,26 @@ export const analyzeClothingImage = async (base64Image: string): Promise<any[]> 
           {
             text: `Analyze this image for a closet inventory app. 
       
-      GOAL: Accurate detection and PRECISE cropping of clothing items.
+      GOAL: Detect clothing items with EXTREMELY PRECISE Bounding Boxes.
 
       Tasks:
-      1. Detect distinct clothing items.
+      1. Detect distinct clothing items. Do not merge adjacent items.
       
-      2. DIGITAL SCREENSHOTS (e.g. Online Store Cart/History):
-         - Identify each product row.
-         - **box_2d**: Draw the box STRICTLY around the product thumbnail image. 
-         - **Exclude**: Text descriptions, price tags, quantity buttons, and white whitespace margins.
-         - Extract metadata (Brand/Size) from the adjacent text.
+      2. DIGITAL SCREENSHOTS (Websites/Carts/Social Media):
+         - **box_2d**: Focus strictly on the product image.
+         - **CRITICAL EXCLUSIONS**: You must EXCLUDE all UI elements:
+           - Price tags ($19.99)
+           - "Add to Cart" / "Buy" buttons
+           - "Sale" / "New" badges
+           - Heart/Favorite icons
+           - Text descriptions below or above the image.
+         - **Whitespace**: If the product is inside a white square container, crop to the GARMENT, not the container edges. Remove excess white padding.
 
-      3. REAL PHOTOS (e.g. Flat Lay or Hanger):
-         - **box_2d**: Draw the box EXTREMELY TIGHTLY around the garment fabric.
-         - **Exclude**: The hanger hook (crop it out).
-         - **Exclude**: Background clutter, floor, bed sheets, or shadows.
-         - If worn: Crop to the garment, excluding the person's face/hands if possible.
+      3. REAL PHOTOS (Flat Lay/Hanger):
+         - **box_2d**: Crop TIGHTLY to the fabric edges.
+         - **Hangers**: Exclude the hook entirely. Crop at the shoulder line/neckline.
+         - **Mannequins**: Exclude the mannequin neck/stand if possible.
+         - **Shadows**: Do NOT include cast shadows on the wall/floor.
       
       4. Return a list of items found.`
           }
@@ -185,11 +202,9 @@ export const analyzeClothingImage = async (base64Image: string): Promise<any[]> 
         thinkingConfig: { thinkingBudget: 2048 }, 
         systemInstruction: `You are an expert fashion image analyzer.
         
-        YOUR PRIORITY IS THE BOUNDING BOX QUALITY.
-        - The box must be as small as possible while containing the entire garment.
-        - Do not include "air" or background around the item.
-        - For screenshots, distinguish between the product image and the UI elements.
-        - Ignore non-clothing items unless they are accessories.
+        Your bounding boxes must be pixel-perfect.
+        - For Screenshots: IGNORE white padding. IGNORE text labels. Crop only the clothes.
+        - For Real Photos: IGNORE hangers and background.
         
         Return pure JSON.`,
       }
@@ -214,12 +229,12 @@ export const analyzeClothingImage = async (base64Image: string): Promise<any[]> 
          // Filter 2: Extreme Aspect Ratios (Noise reduction)
          const ratio = width / height;
          // Reject very thin strips (likely text rows) or very tall thin lines
-         // Typical clothes are between 0.3 (tall dress) and 3.0 (wide belt/shoes)
          if (ratio > 5 || ratio < 0.2) return item; 
          
         try {
           // Pass the original base64Image (with header if it had one) to the crop function
-          const croppedImage = await cropImage(base64Image, item.box_2d, 0);
+          // Use 1% padding (0.01) - Tighter crop for screenshots to avoid text inclusion
+          const croppedImage = await cropImage(base64Image, item.box_2d, 0.01);
           return { ...item, image: croppedImage };
         } catch (e) {
           console.error("Cropping failed", e);
