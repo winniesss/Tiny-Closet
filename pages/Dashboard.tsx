@@ -1,9 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
 import { WeatherWidget } from '../components/WeatherWidget';
 import { WeatherData, ClothingItem, Season, Category, OutfitLike } from '../types';
-import { Shirt, AlertCircle, Cake, Archive, CheckCircle2, MapPin, Sparkles, Smile, Heart } from 'lucide-react';
+import { Shirt, AlertCircle, Cake, Archive, CheckCircle2, MapPin, Sparkles, Smile, Heart, RotateCcw } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Logo } from '../components/Logo';
 import { ItemDetailModal } from '../components/ItemDetailModal';
@@ -121,8 +121,9 @@ export const Dashboard: React.FC = () => {
     initWeather();
   }, []);
 
-  // --- OOTD GENERATION ---
-  useEffect(() => {
+  // --- SMART STYLING ENGINE ---
+  // Define generator outside of useEffect so it can be called by shuffle button
+  const generateOutfits = useCallback(() => {
     if (!allItems || allItems.length === 0) return;
 
     // Reset like state when regenerating
@@ -148,7 +149,6 @@ export const Dashboard: React.FC = () => {
     const shoes = suitable.filter(i => i.category === Category.Shoes);
     const accessories = suitable.filter(i => i.category === Category.Accessory);
 
-    // --- SMART STYLING ENGINE ---
     const generateStyledOutfit = (style: 'playful' | 'chic') => {
         const outfit: ClothingItem[] = [];
         const shuffle = (arr: ClothingItem[]) => [...arr].sort(() => Math.random() - 0.5);
@@ -180,10 +180,8 @@ export const Dashboard: React.FC = () => {
         const shuffledBottoms = shuffle(bottoms);
 
         if (style === 'chic') {
-            // Chic prefers dresses/one-pieces (70%)
              if (shuffledFull.length > 0 && Math.random() > 0.3) useFullBody = true;
         } else {
-            // Playful prefers separates (70%)
              if (shuffledFull.length > 0 && (shuffledTops.length === 0 || Math.random() > 0.7)) useFullBody = true;
         }
         
@@ -201,25 +199,20 @@ export const Dashboard: React.FC = () => {
             outfit.push(top);
 
             // Smart Bottom Matching
-            // 1. Get bottoms sorted by previous likes (Affinity)
             let candidateBottoms = getPairAffinity(top, shuffledBottoms);
             
             // 2. Filter by Style Rules
             let validBottoms: ClothingItem[] = [];
             
             if (style === 'chic') {
-                // Chic Rule: Neutral + Neutral OR Monochrome. 
                 if (!isNeutral(top.color)) {
                      validBottoms = candidateBottoms.filter(b => isNeutral(b.color) || isMonochrome(top.color, b.color));
                 } else {
                      validBottoms = candidateBottoms;
                 }
             } else {
-                // Playful Rule: Color Blocking OK, but prefer affinity.
                 if (!isNeutral(top.color)) {
-                    // Try to find neutral bottoms first to avoid clashes
                     const neutralBottoms = candidateBottoms.filter(b => isNeutral(b.color));
-                    // 50% chance to force neutral if top is bright, unless we have a specific history match
                     if (neutralBottoms.length > 0 && Math.random() > 0.5) {
                         validBottoms = neutralBottoms;
                     } else {
@@ -230,7 +223,6 @@ export const Dashboard: React.FC = () => {
                 }
             }
 
-            // Fallback
             const bottom = validBottoms.length > 0 ? validBottoms[0] : candidateBottoms[0];
             outfit.push(bottom);
         }
@@ -238,7 +230,6 @@ export const Dashboard: React.FC = () => {
         // -- Step 2: Layers --
         if (temp < 19 && outerwear.length > 0) {
             const baseItem = outfit[0];
-            // Coordinate outer with base
             const matchingOuter = outerwear.filter(o => isNeutral(o.color) || isMonochrome(baseItem.color, o.color));
             
             const outer = matchingOuter.length > 0 
@@ -251,7 +242,6 @@ export const Dashboard: React.FC = () => {
         // -- Step 3: Shoes --
         if (shoes.length > 0) {
             const baseItem = outfit[0];
-            // Match shoes to base or go neutral
             const matchingShoes = shoes.filter(s => isNeutral(s.color) || isMonochrome(baseItem.color, s.color));
             
             const shoe = matchingShoes.length > 0 
@@ -262,7 +252,6 @@ export const Dashboard: React.FC = () => {
         }
         
         // -- Step 4: Accessories --
-        // Add if Chic or Cold (< 10C)
         if (accessories.length > 0 && (style === 'chic' || temp < 10)) {
              const acc = accessories[Math.floor(Math.random() * accessories.length)];
              outfit.push(acc);
@@ -271,12 +260,22 @@ export const Dashboard: React.FC = () => {
         return outfit;
     };
 
-    // Only regenerate when items change or weather changes drastically
-    // This prevents flicker, but we need to ensure we run this initially
     setSuggestion1(generateStyledOutfit('playful'));
     setSuggestion2(generateStyledOutfit('chic'));
-    
-  }, [allItems, weather, likedOutfits]); // Add likedOutfits to dep array so it gets smarter as you like things
+
+  }, [allItems, weather, likedOutfits]);
+
+  // --- OOTD AUTO-INIT ---
+  useEffect(() => {
+    // Only auto-run if we have items
+    if (allItems && allItems.length > 0) {
+        // NOTE: We deliberately do NOT include 'likedOutfits' in dependency array here.
+        // We don't want to regenerate the outfit immediately after the user likes it.
+        // We only regenerate if items change (added/removed) or weather changes.
+        generateOutfits();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allItems, weather]);
 
   const activeSuggestion = activeTab === 'playful' ? suggestion1 : suggestion2;
 
@@ -385,25 +384,36 @@ export const Dashboard: React.FC = () => {
               </div>
           </div>
           
-          {/* Like Button */}
-          {activeSuggestion.length > 0 && (
+          <div className="flex items-center gap-2">
+            {/* Shuffle Button */}
              <button 
-                onClick={handleLikeOutfit}
-                disabled={isLiked}
-                className={`w-10 h-10 rounded-full flex items-center justify-center shadow-sm transition-all border ${isLiked ? 'bg-red-50 border-red-100' : 'bg-white border-slate-100 active:scale-95'}`}
+                onClick={generateOutfits}
+                className="w-10 h-10 rounded-full flex items-center justify-center shadow-sm bg-white border border-slate-100 text-slate-400 hover:text-sky-500 hover:border-sky-200 active:scale-95 transition-all"
+                title="Shuffle Outfit"
              >
-                 <Heart 
-                    size={20} 
-                    className={`transition-all duration-300 ${isLiked ? 'fill-red-500 text-red-500 scale-110' : 'text-slate-300 hover:text-slate-400'}`} 
-                 />
-                 {/* Floating Heart Animation */}
-                 {showHeartAnim && (
-                     <div className="absolute pointer-events-none animate-out fade-out slide-out-to-top-10 duration-1000 z-50">
-                         <Heart size={40} className="fill-red-500 text-red-500" />
-                     </div>
-                 )}
+                 <RotateCcw size={18} />
              </button>
-          )}
+
+            {/* Like Button */}
+            {activeSuggestion.length > 0 && (
+                <button 
+                    onClick={handleLikeOutfit}
+                    disabled={isLiked}
+                    className={`w-10 h-10 rounded-full flex items-center justify-center shadow-sm transition-all border ${isLiked ? 'bg-red-50 border-red-100' : 'bg-white border-slate-100 active:scale-95 hover:border-red-200'}`}
+                >
+                    <Heart 
+                        size={20} 
+                        className={`transition-all duration-300 ${isLiked ? 'fill-red-500 text-red-500 scale-110' : 'text-slate-300 hover:text-red-400'}`} 
+                    />
+                    {/* Floating Heart Animation */}
+                    {showHeartAnim && (
+                        <div className="absolute pointer-events-none animate-out fade-out slide-out-to-top-10 duration-1000 z-50">
+                            <Heart size={40} className="fill-red-500 text-red-500" />
+                        </div>
+                    )}
+                </button>
+            )}
+          </div>
         </div>
         
         {(!allItems || allItems.length === 0) ? (
@@ -417,7 +427,7 @@ export const Dashboard: React.FC = () => {
             </Link>
           </div>
         ) : activeSuggestion.length > 0 ? (
-          <div className="grid grid-cols-2 gap-4 animate-in fade-in slide-in-from-bottom-2 duration-300" key={activeTab}>
+          <div className="grid grid-cols-2 gap-4 animate-in fade-in slide-in-from-bottom-2 duration-300" key={activeTab + (isLiked ? '-liked' : '')}>
             {activeSuggestion.map((item, i) => (
               <div 
                 key={`${item.id}-${i}`} 

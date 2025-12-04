@@ -75,7 +75,7 @@ export const ItemDetailModal: React.FC<Props> = ({ item, onClose, onToggleArchiv
             
             <button 
                 onClick={onClose}
-                className="absolute top-4 right-4 p-3 bg-white/50 backdrop-blur-md rounded-full text-slate-800 hover:bg-white transition-colors shadow-sm z-10"
+                className="absolute top-4 right-4 p-3 bg-white/50 backdrop-blur-md rounded-full text-slate-800 hover:bg-white transition-colors shadow-sm z-30"
             >
                 <X size={24} />
             </button>
