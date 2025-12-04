@@ -11,9 +11,13 @@ export enum Category {
   Top = 'Top',
   Bottom = 'Bottom',
   FullBody = 'Full Body',
+  Romper = 'Romper',
+  Overall = 'Overall',
   Shoes = 'Shoes',
   Outerwear = 'Outerwear',
+  Vest = 'Vest',
   Accessory = 'Accessory',
+  Tights = 'Tights',
   Pajamas = 'Pajamas',
   Swimwear = 'Swimwear',
   Socks = 'Socks'

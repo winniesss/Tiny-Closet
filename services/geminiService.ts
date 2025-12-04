@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type, Schema } from "@google/genai";
 import { Category, Season } from "../types";
 
@@ -15,9 +16,13 @@ const itemSchema: Schema = {
         Category.Top, 
         Category.Bottom, 
         Category.FullBody, 
+        Category.Romper,
+        Category.Overall,
         Category.Shoes, 
         Category.Outerwear, 
+        Category.Vest,
         Category.Accessory,
+        Category.Tights,
         Category.Pajamas,
         Category.Swimwear,
         Category.Socks

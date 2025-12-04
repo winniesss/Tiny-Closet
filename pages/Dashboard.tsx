@@ -220,8 +220,17 @@ export const Dashboard: React.FC = () => {
 
     const tops = suitable.filter(i => i.category === Category.Top);
     const bottoms = suitable.filter(i => i.category === Category.Bottom);
-    const fullBody = suitable.filter(i => i.category === Category.FullBody);
-    const outerwear = suitable.filter(i => i.category === Category.Outerwear);
+    // Updated: Include Rompers and Overalls in fullBody pool
+    const fullBody = suitable.filter(i => 
+        i.category === Category.FullBody || 
+        i.category === Category.Romper || 
+        i.category === Category.Overall
+    );
+    // Updated: Include Vests in Outerwear pool
+    const outerwear = suitable.filter(i => 
+        i.category === Category.Outerwear || 
+        i.category === Category.Vest
+    );
     const shoes = suitable.filter(i => i.category === Category.Shoes);
     const accessories = suitable.filter(i => i.category === Category.Accessory);
 
