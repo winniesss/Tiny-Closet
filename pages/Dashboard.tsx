@@ -95,23 +95,51 @@ export const Dashboard: React.FC = () => {
   const [suggestion1, setSuggestion1] = useState<ClothingItem[]>([]);
   const [suggestion2, setSuggestion2] = useState<ClothingItem[]>([]);
   const [activeTab, setActiveTab] = useState<'playful' | 'chic'>('playful');
-  const [justArchivedCount, setJustArchivedCount] = useState(0);
+  const [notification, setNotification] = useState<string | null>(null);
   const [selectedItem, setSelectedItem] = useState<ClothingItem | null>(null);
   
   // Like State
   const [isLiked, setIsLiked] = useState(false);
   const [showHeartAnim, setShowHeartAnim] = useState(false);
 
+  // Weather Cache Logic
+  const getCachedWeather = () => {
+      try {
+          const cached = localStorage.getItem('tinyCloset_weather_cache');
+          if (cached) {
+              const { timestamp, data } = JSON.parse(cached);
+              // Cache valid for 30 minutes
+              if (Date.now() - timestamp < 30 * 60 * 1000) {
+                  return data;
+              }
+          }
+      } catch (e) {
+          console.error("Weather cache error", e);
+      }
+      return null;
+  };
+
+  const cachedWeather = getCachedWeather();
+
   // Weather State
-  const [weather, setWeather] = useState<WeatherData>({
+  const [weather, setWeather] = useState<WeatherData>(cachedWeather || {
     condition: 'Sunny',
     temp: 20,
     description: 'Fetching forecast...'
   });
-  const [locationEnabled, setLocationEnabled] = useState(false);
+  
+  const [locationEnabled, setLocationEnabled] = useState(!!cachedWeather);
 
   const profile = useLiveQuery(() => db.profile.toArray());
   const allItems = useLiveQuery(() => db.items.filter(i => !i.isArchived).toArray());
+  
+  const arraysEqual = (a: number[], b: number[]) => {
+      if (a.length !== b.length) return false;
+      const sortedA = [...a].sort();
+      const sortedB = [...b].sort();
+      return sortedA.every((val, index) => val === sortedB[index]);
+  };
+  
   const likedOutfits = useLiveQuery(() => db.outfitLikes.toArray());
   
   const currentKid = profile?.[0];
@@ -119,11 +147,19 @@ export const Dashboard: React.FC = () => {
   // Initialize Weather
   useEffect(() => {
     const initWeather = async () => {
+        // If we have valid cache (checked on mount), skip fetch
+        if (getCachedWeather()) return;
+
         try {
             const coords = await getCoordinates();
             setLocationEnabled(true);
             const data = await fetchWeather(coords.lat, coords.lon);
             setWeather(data);
+            
+            localStorage.setItem('tinyCloset_weather_cache', JSON.stringify({
+                timestamp: Date.now(),
+                data
+            }));
         } catch (e) {
             console.log("Using default weather", e);
             setLocationEnabled(false);
@@ -138,10 +174,35 @@ export const Dashboard: React.FC = () => {
   }, []);
 
   // --- ADVANCED STYLING ENGINE ---
-  const generateOutfits = useCallback(() => {
+  const generateOutfits = useCallback((forceShuffle = false) => {
     if (!allItems || allItems.length === 0) return;
 
-    // Reset like state
+    const todayKey = `tinyCloset_suggestions_${new Date().toLocaleDateString()}`;
+
+    // 0. Try loading from storage first (Persistence Layer)
+    if (!forceShuffle) {
+        try {
+            const saved = localStorage.getItem(todayKey);
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                if (parsed.playful && parsed.chic) {
+                    const recover = (ids: number[]) => ids.map(id => allItems.find(i => i.id === id)).filter(Boolean) as ClothingItem[];
+                    const s1 = recover(parsed.playful);
+                    const s2 = recover(parsed.chic);
+                    
+                    if (s1.length > 0 || s2.length > 0) {
+                        setSuggestion1(s1);
+                        setSuggestion2(s2);
+                        return; // Successfully loaded, skip generation
+                    }
+                }
+            }
+        } catch (e) {
+            console.error("Storage load failed", e);
+        }
+    }
+
+    // Reset like state if we are regenerating
     setIsLiked(false);
 
     // 1. Determine Season Context
@@ -310,10 +371,19 @@ export const Dashboard: React.FC = () => {
         return outfit;
     };
 
-    setSuggestion1(buildOutfit('playful'));
-    setSuggestion2(buildOutfit('chic'));
+    const s1 = buildOutfit('playful');
+    const s2 = buildOutfit('chic');
 
-  }, [allItems, weather]); // Removed likedOutfits dependency to prevent instant reshuffle on like
+    setSuggestion1(s1);
+    setSuggestion2(s2);
+
+    // Save to persistence
+    localStorage.setItem(todayKey, JSON.stringify({
+        playful: s1.map(i => i.id),
+        chic: s2.map(i => i.id)
+    }));
+
+  }, [allItems, weather]);
 
   // --- OOTD AUTO-INIT ---
   useEffect(() => {
@@ -324,6 +394,21 @@ export const Dashboard: React.FC = () => {
   }, [allItems, weather]);
 
   const activeSuggestion = activeTab === 'playful' ? suggestion1 : suggestion2;
+
+  // Check if current outfit is liked (Restoring Heart UI on remount)
+  useEffect(() => {
+      if (!likedOutfits || activeSuggestion.length === 0) {
+          setIsLiked(false);
+          return;
+      }
+      
+      const currentIds = activeSuggestion.map(i => i.id).filter(Boolean) as number[];
+      if (currentIds.length === 0) return;
+
+      const found = likedOutfits.find(outfit => arraysEqual(outfit.itemIds, currentIds));
+      setIsLiked(!!found);
+  }, [activeSuggestion, likedOutfits]);
+
 
   const handleLikeOutfit = async () => {
       if (isLiked || activeSuggestion.length === 0) return;
@@ -339,7 +424,11 @@ export const Dashboard: React.FC = () => {
           
           setIsLiked(true);
           setShowHeartAnim(true);
-          setTimeout(() => setShowHeartAnim(false), 1000);
+          setNotification("Saved to Lookbook!");
+          setTimeout(() => {
+              setShowHeartAnim(false);
+              setNotification(null);
+          }, 2000);
       }
   };
 
@@ -363,8 +452,8 @@ export const Dashboard: React.FC = () => {
       const ids = outgrownItems.map(i => i.id).filter(id => id !== undefined) as number[];
       if (ids.length > 0) {
           await db.items.bulkUpdate(ids.map(id => ({ key: id, changes: { isArchived: true } })));
-          setJustArchivedCount(ids.length);
-          setTimeout(() => setJustArchivedCount(0), 3000);
+          setNotification(`Archived ${ids.length} items`);
+          setTimeout(() => setNotification(null), 3000);
       }
   };
 
@@ -411,30 +500,32 @@ export const Dashboard: React.FC = () => {
       </div>
 
       <section className="mb-10 relative">
-        <div className="flex justify-between items-center mb-4 px-1">
-          <div className="flex items-center gap-4">
-              <h2 className="text-lg text-slate-800 font-serif font-bold">Today's Outfit</h2>
-              <div className="flex bg-white rounded-full p-1 shadow-sm border border-slate-100">
+        <div className="flex justify-between items-center mb-5 px-1 pt-2">
+          {/* Left: Title & Toggle */}
+          <div className="flex flex-col gap-3">
+              <h2 className="text-xl text-slate-800 font-serif font-bold leading-none">Today's Outfit</h2>
+              <div className="flex bg-white rounded-full p-1 shadow-sm border border-slate-100 self-start">
                   <button 
                     onClick={() => { setActiveTab('playful'); setIsLiked(false); }}
-                    className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-1 ${activeTab === 'playful' ? 'bg-orange-400 text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                    className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-1 ${activeTab === 'playful' ? 'bg-orange-400 text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
                   >
                       <Smile size={12} /> Playful
                   </button>
                   <button 
                     onClick={() => { setActiveTab('chic'); setIsLiked(false); }}
-                    className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-1 ${activeTab === 'chic' ? 'bg-sky-400 text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                    className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-1 ${activeTab === 'chic' ? 'bg-sky-400 text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
                   >
                       <Sparkles size={12} /> Chic
                   </button>
               </div>
           </div>
           
-          <div className="flex items-center gap-2">
+          {/* Right: Actions */}
+          <div className="flex items-center gap-2 self-end mb-1">
             {/* Shuffle Button */}
              <button 
-                onClick={generateOutfits}
-                className="w-10 h-10 rounded-full flex items-center justify-center shadow-sm bg-white border border-slate-100 text-slate-400 hover:text-sky-500 hover:border-sky-200 active:scale-95 transition-all"
+                onClick={() => generateOutfits(true)}
+                className="w-11 h-11 rounded-full flex items-center justify-center shadow-sm bg-white border border-slate-100 text-slate-400 hover:text-sky-500 hover:border-sky-200 active:scale-95 transition-all"
                 title="Shuffle Outfit"
              >
                  <RotateCcw size={18} />
@@ -445,7 +536,7 @@ export const Dashboard: React.FC = () => {
                 <button 
                     onClick={handleLikeOutfit}
                     disabled={isLiked}
-                    className={`w-10 h-10 rounded-full flex items-center justify-center shadow-sm transition-all border ${isLiked ? 'bg-red-50 border-red-100' : 'bg-white border-slate-100 active:scale-95 hover:border-red-200'}`}
+                    className={`w-11 h-11 rounded-full flex items-center justify-center shadow-sm transition-all border ${isLiked ? 'bg-red-50 border-red-100' : 'bg-white border-slate-100 active:scale-95 hover:border-red-200'}`}
                 >
                     <Heart 
                         size={20} 
@@ -542,10 +633,11 @@ export const Dashboard: React.FC = () => {
         </section>
       )}
 
-      {justArchivedCount > 0 && (
+      {/* Global Notification */}
+      {notification && (
           <div className="fixed bottom-24 left-1/2 -translate-x-1/2 bg-slate-800 text-white px-6 py-3 rounded-full shadow-xl flex items-center gap-3 animate-in fade-in slide-in-from-bottom-8 z-50">
               <CheckCircle2 className="text-green-400" size={20} />
-              <span className="font-bold">Archived {justArchivedCount} items</span>
+              <span className="font-bold">{notification}</span>
           </div>
       )}
 

@@ -1,8 +1,9 @@
+
 import React, { useEffect, useState, useRef } from 'react';
 import { db } from '../db';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { ChildProfile } from '../types';
-import { Camera, User, Download, UploadCloud, CheckCircle2, AlertCircle, HelpCircle, Power, Settings as SettingsIcon, Info } from 'lucide-react';
+import { Camera, User, Download, UploadCloud, CheckCircle2, AlertCircle, HelpCircle, RefreshCw, Settings as SettingsIcon, Info } from 'lucide-react';
 import clsx from 'clsx';
 
 export const Settings: React.FC = () => {
@@ -14,6 +15,25 @@ export const Settings: React.FC = () => {
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
+
+  const releaseNotes = [
+      {
+          version: "1.8",
+          changes: [
+              "Improved crop tool: Now supports long screenshots better.",
+              "Removed 'Find Online' feature to focus on local privacy and speed.",
+              "Dashboard visual polish.",
+          ]
+      },
+      {
+          version: "1.7",
+          changes: [
+              "Added Archive functionality.",
+              "Brand filter in Closet view.",
+              "Performance improvements."
+          ]
+      }
+  ];
 
   useEffect(() => {
     if (profiles && profiles.length > 0) {
@@ -301,22 +321,37 @@ export const Settings: React.FC = () => {
                             A: Because data is local, you must use the "Export Backup" feature in Settings to save a file, then "Import Backup" on your new device.
                         </p>
                     </div>
-                    <div>
-                        <h3 className="font-bold text-slate-800 text-sm mb-1">Q: Can it detect sizes automatically?</h3>
-                        <p className="text-xs text-slate-500 leading-relaxed font-medium">
-                            A: Yes! If you take a photo where the size tag is visible, or upload a screenshot of an order confirmation, the AI attempts to read the text (e.g., "2T", "6-9M") and save it to the item profile.
-                        </p>
-                    </div>
+                </div>
+            </div>
+
+            <div className="mb-8 bg-white p-6 rounded-[2.5rem] shadow-sm">
+                <div className="flex items-center gap-2 mb-6 text-orange-500">
+                    <RefreshCw size={20} />
+                    <span className="text-xs font-bold uppercase tracking-widest">What's New</span>
+                </div>
+                <div className="space-y-6">
+                    {releaseNotes.map((note, idx) => (
+                        <div key={idx} className="relative pl-4 border-l-2 border-slate-100">
+                            <h3 className="font-bold text-slate-800 text-sm mb-2">v{note.version}</h3>
+                            <ul className="space-y-2">
+                                {note.changes.map((change, cIdx) => (
+                                    <li key={cIdx} className="text-xs text-slate-500 font-medium leading-relaxed">
+                                        • {change}
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    ))}
                 </div>
             </div>
 
             <div className="mt-12 text-center pb-4">
-                <p className="text-slate-300 text-xs font-bold mb-3">Tiny Closet v1.7</p>
+                <p className="text-slate-300 text-xs font-bold mb-3">Tiny Closet v1.8</p>
                 <button 
                 onClick={handleReload}
                 className="inline-flex items-center gap-2 text-sky-400 text-xs font-bold bg-white px-4 py-2 rounded-full shadow-sm hover:bg-sky-50 transition-colors"
                 >
-                <Power size={12} /> Update
+                <RefreshCw size={12} /> Update App
                 </button>
             </div>
         </div>
