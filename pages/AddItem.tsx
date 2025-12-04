@@ -381,20 +381,20 @@ export const AddItem: React.FC = () => {
 
   if (step === 'preview') {
       return (
-          <div className="h-screen flex flex-col bg-slate-900 relative">
-               <div className="absolute top-0 left-0 right-0 p-4 z-10 flex justify-between items-center text-white">
+          <div className="h-[100dvh] flex flex-col bg-slate-900 relative">
+               <div className="absolute top-0 left-0 right-0 p-4 z-20 flex justify-between items-center text-white">
                   <button onClick={() => setStep('upload')} className="p-2 bg-black/20 backdrop-blur rounded-full hover:bg-black/30 transition-colors">
                       <X size={24} />
                   </button>
                </div>
                
-               <div className="flex-1 flex items-center justify-center p-6 bg-slate-900/50">
+               <div className="flex-1 min-h-0 flex items-center justify-center p-6 bg-slate-900/50 relative z-10">
                   {originalImage && (
                     <img src={originalImage} alt="Preview" className="max-w-full max-h-full object-contain shadow-2xl rounded-lg" />
                   )}
                </div>
   
-               <div className="p-6 pb-28 bg-slate-900 flex gap-6 justify-center items-center">
+               <div className="p-6 pb-8 bg-slate-900 flex gap-6 justify-center items-center z-20 relative">
                    <button 
                       onClick={() => {
                         setStep('upload');

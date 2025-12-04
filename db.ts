@@ -1,3 +1,4 @@
+
 import Dexie, { type Table } from 'dexie';
 import { ClothingItem, ChildProfile, OutfitLike } from './types';
 
@@ -23,6 +24,11 @@ class ClosetDatabase extends Dexie {
                 item.category = 'Pajamas';
             }
         });
+    });
+
+    // Version 4: Add dateArchived index
+    (this as any).version(4).stores({
+      items: '++id, brand, sizeLabel, category, dateAdded, isArchived, dateArchived'
     });
   }
 }
