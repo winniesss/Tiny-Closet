@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Camera, Loader2, X, ChevronLeft, ChevronRight, Trash2, Sparkles, AlertTriangle, FileText, Crop as CropIcon, RotateCw, Check, RefreshCw } from 'lucide-react';
+import { Camera, Loader2, X, ChevronLeft, ChevronRight, Trash2, Sparkles, AlertTriangle, FileText, Crop as CropIcon, RotateCw, Check, RefreshCw, ScanLine, Scan } from 'lucide-react';
 import { analyzeClothingImage } from '../services/geminiService';
 import { db } from '../db';
 import { ClothingItem, Category, Season } from '../types';
@@ -38,6 +38,10 @@ export const AddItem: React.FC = () => {
   
   // Recrop State
   const [recropIndex, setRecropIndex] = useState<number | null>(null);
+  
+  // Refine/Rescan Menu State
+  const [rescanMenuOpen, setRescanMenuOpen] = useState(false);
+  const [isRefining, setIsRefining] = useState(false);
 
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [reviewItems, setReviewItems] = useState<Partial<ClothingItem>[]>([]);
@@ -282,6 +286,36 @@ export const AddItem: React.FC = () => {
         setReviewItems([{ image: base64, dateAdded: Date.now(), seasons: [] }]);
         setCurrentIndex(0);
         setStep('review');
+      }
+  };
+
+  const handleRefineCurrentItem = async () => {
+      const current = reviewItems[currentIndex];
+      if (!current.image) return;
+      
+      setIsRefining(true);
+      setAnalysisError(null);
+      
+      try {
+          const results = await analyzeClothingImage(current.image);
+          if (results && results.length > 0) {
+              const refined = results[0];
+              const updatedItems = [...reviewItems];
+              updatedItems[currentIndex] = {
+                  ...current,
+                  ...refined,
+                  // Use new image if available (tighter crop), otherwise keep manual crop
+                  image: refined.image || current.image 
+              };
+              setReviewItems(updatedItems);
+          } else {
+              setAnalysisError("Could not refine item details.");
+          }
+      } catch (e) {
+          console.error("Refine failed", e);
+          setAnalysisError("Refine failed. Try cropping manually.");
+      } finally {
+          setIsRefining(false);
       }
   };
 
@@ -602,24 +636,59 @@ export const AddItem: React.FC = () => {
                     <div className="w-full h-full flex items-center justify-center text-slate-300 font-bold">No Image</div>
                 )}
                 
+                {/* Refine Loader Overlay */}
+                {isRefining && (
+                    <div className="absolute inset-0 bg-white/50 backdrop-blur-sm flex items-center justify-center z-40">
+                         <Loader2 className="animate-spin text-sky-500" size={32} />
+                    </div>
+                )}
+
                 <button 
                      onClick={() => {
                         setRecropIndex(currentIndex);
                         initCrop(originalImage || currentItem.image!);
                      }}
                      className="absolute top-6 left-6 p-3 bg-white/90 backdrop-blur rounded-xl text-slate-400 hover:text-sky-500 shadow-sm transition-colors"
-                     title="Re-crop Item"
+                     title="Manual Crop"
                 >
                      <CropIcon size={20} />
                 </button>
 
-                <button 
-                     onClick={() => startAnalysis(lastAnalysisImage || originalImage || currentItem.image!)}
-                     className="absolute bottom-6 right-6 p-3 bg-white/90 backdrop-blur rounded-xl text-slate-400 hover:text-sky-500 shadow-sm transition-colors"
-                     title="Re-analyze Image"
-                >
-                     <RefreshCw size={20} />
-                </button>
+                {/* --- Enhanced Rescan Button with Menu --- */}
+                <div className="absolute bottom-6 right-6 flex flex-col items-end gap-2 z-30">
+                    {rescanMenuOpen && (
+                        <div className="bg-white/95 backdrop-blur rounded-2xl shadow-xl p-2 flex flex-col gap-1 min-w-[180px] animate-in slide-in-from-bottom-2 fade-in border border-slate-100">
+                            <button 
+                                onClick={() => {
+                                    setRescanMenuOpen(false);
+                                    startAnalysis(lastAnalysisImage || originalImage || currentItem.image!);
+                                }}
+                                className="text-left px-3 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded-xl flex items-center gap-2"
+                            >
+                                <Scan size={14} /> Rescan Full Photo
+                            </button>
+                            <button 
+                                onClick={() => {
+                                    setRescanMenuOpen(false);
+                                    handleRefineCurrentItem();
+                                }}
+                                className="text-left px-3 py-3 text-xs font-bold text-sky-500 hover:bg-sky-50 rounded-xl flex items-center gap-2"
+                            >
+                                <ScanLine size={14} /> Refine This Item
+                            </button>
+                        </div>
+                    )}
+                    <button 
+                            onClick={() => setRescanMenuOpen(!rescanMenuOpen)}
+                            className={clsx(
+                                "p-3 backdrop-blur rounded-xl shadow-sm transition-colors",
+                                rescanMenuOpen ? "bg-sky-400 text-white" : "bg-white/90 text-slate-400 hover:text-sky-500"
+                            )}
+                            title="Analysis Options"
+                    >
+                            <RefreshCw size={20} className={clsx(rescanMenuOpen && "rotate-90 transition-transform")} />
+                    </button>
+                </div>
 
                 <button 
                      onClick={handleDeleteCurrent}
