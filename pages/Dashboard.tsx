@@ -1,29 +1,45 @@
+
 import React, { useEffect, useState, useCallback } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
 import { WeatherWidget } from '../components/WeatherWidget';
-import { WeatherData, ClothingItem, Season, Category, OutfitLike } from '../types';
-import { Shirt, AlertCircle, Cake, Archive, CheckCircle2, MapPin, Sparkles, Smile, Heart, RotateCcw } from 'lucide-react';
+import { WeatherData, ClothingItem, Season, Category } from '../types';
+import { Shirt, AlertCircle, Cake, Archive, CheckCircle2, MapPin, Sparkles, Smile, Heart, RotateCcw, TrendingUp } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Logo } from '../components/Logo';
 import { ItemDetailModal } from '../components/ItemDetailModal';
 import { getCoordinates, fetchWeather } from '../services/weatherService';
 
-// --- STYLING UTILS ---
-const NEUTRALS = ['white', 'black', 'grey', 'gray', 'beige', 'cream', 'denim', 'navy', 'brown', 'tan', 'khaki', 'ivory', 'oat', 'stone'];
+// --- STYLING INTELLIGENCE UTILS ---
+
+const PALETTES = {
+    neutrals: ['white', 'black', 'grey', 'gray', 'beige', 'cream', 'ivory', 'oat', 'stone', 'charcoal'],
+    earthy: ['sage', 'olive', 'clay', 'terracotta', 'rust', 'mustard', 'brown', 'tan', 'cocoa', 'sand', 'khaki'],
+    pastels: ['mint', 'blush', 'pale', 'baby blue', 'lilac', 'butter', 'peach', 'rose'],
+    vibrant: ['red', 'royal', 'yellow', 'green', 'pink', 'orange']
+};
+
+// Helper to clean color strings for comparison
+const cleanColor = (c: string) => c.toLowerCase().trim();
 
 const isNeutral = (color?: string) => {
     if (!color) return true;
-    const c = color.toLowerCase().trim();
-    // Check strict neutrals
-    return NEUTRALS.some(n => c.includes(n));
+    const c = cleanColor(color);
+    return PALETTES.neutrals.some(n => c.includes(n));
 };
 
-const isMonochrome = (c1?: string, c2?: string) => {
+const isEarthy = (color?: string) => {
+    if (!color) return false;
+    const c = cleanColor(color);
+    return PALETTES.earthy.some(n => c.includes(n));
+};
+
+// Check if colors are in the same family (Monochrome)
+const isTonal = (c1?: string, c2?: string) => {
     if (!c1 || !c2) return false;
-    const a = c1.toLowerCase();
-    const b = c2.toLowerCase();
-    // Check if one contains the other (e.g. "Light Blue" and "Blue") or precise match
+    const a = cleanColor(c1);
+    const b = cleanColor(c2);
+    // Direct match or substring match (e.g. "Light Blue" & "Blue")
     return a.includes(b) || b.includes(a);
 };
 
@@ -121,23 +137,22 @@ export const Dashboard: React.FC = () => {
     initWeather();
   }, []);
 
-  // --- SMART STYLING ENGINE ---
-  // Define generator outside of useEffect so it can be called by shuffle button
+  // --- ADVANCED STYLING ENGINE ---
   const generateOutfits = useCallback(() => {
     if (!allItems || allItems.length === 0) return;
 
-    // Reset like state when regenerating
+    // Reset like state
     setIsLiked(false);
 
+    // 1. Determine Season Context
     let targetSeason: Season = Season.All;
     const temp = weather.temp;
-
     if (temp > 25) targetSeason = Season.Summer;
     else if (temp > 15) targetSeason = Season.Spring;
     else if (temp > 5) targetSeason = Season.Fall;
     else targetSeason = Season.Winter;
 
-    // Filter suitable items for current weather
+    // 2. Filter Pool
     const suitable = allItems.filter(item => 
       item.seasons.includes(targetSeason) || item.seasons.includes(Season.All)
     );
@@ -149,129 +164,160 @@ export const Dashboard: React.FC = () => {
     const shoes = suitable.filter(i => i.category === Category.Shoes);
     const accessories = suitable.filter(i => i.category === Category.Accessory);
 
-    const generateStyledOutfit = (style: 'playful' | 'chic') => {
-        const outfit: ClothingItem[] = [];
-        const shuffle = (arr: ClothingItem[]) => [...arr].sort(() => Math.random() - 0.5);
-
-        // --- Helper: Check History ---
-        // Returns a score if these items have been liked together before
-        const getPairAffinity = (itemA: ClothingItem, listB: ClothingItem[]): ClothingItem[] => {
-            if (!likedOutfits || !itemA.id) return listB;
-
-            // Find all outfits that contained itemA
-            const relatedOutfits = likedOutfits.filter(o => o.itemIds.includes(itemA.id!));
-            
-            // Extract IDs of paired items from history
-            const pairedIds = new Set<number>();
-            relatedOutfits.forEach(o => o.itemIds.forEach(id => pairedIds.add(id)));
-
-            // Sort listB: Items that were paired with itemA come first
-            return [...listB].sort((a, b) => {
-                const aLoved = a.id && pairedIds.has(a.id) ? 1 : 0;
-                const bLoved = b.id && pairedIds.has(b.id) ? 1 : 0;
-                return bLoved - aLoved;
-            });
-        };
-
-        // -- Step 1: Base Layer --
-        let useFullBody = false;
-        const shuffledFull = shuffle(fullBody);
-        const shuffledTops = shuffle(tops);
-        const shuffledBottoms = shuffle(bottoms);
-
-        if (style === 'chic') {
-             if (shuffledFull.length > 0 && Math.random() > 0.3) useFullBody = true;
-        } else {
-             if (shuffledFull.length > 0 && (shuffledTops.length === 0 || Math.random() > 0.7)) useFullBody = true;
+    // 3. User Behavior Weighting
+    // Calculate Brand Affinity: How many items of each brand does the user own?
+    const brandCounts: Record<string, number> = {};
+    allItems.forEach(i => {
+        if(i.brand && i.brand !== 'Unknown') {
+            brandCounts[i.brand] = (brandCounts[i.brand] || 0) + 1;
         }
+    });
+
+    // Weighted Random Picker
+    // items from popular brands in your closet have a higher chance of being the "Anchor" piece.
+    const pickWeightedAnchor = (items: ClothingItem[]): ClothingItem | null => {
+        if (items.length === 0) return null;
         
-        // Fallback checks
-        if (shuffledTops.length === 0 || shuffledBottoms.length === 0) {
-            if (shuffledFull.length > 0) useFullBody = true;
-            else return []; // No valid outfit possible
+        // Flatten list based on weight (brands you own more of appear more in the lottery)
+        const weightedPool: ClothingItem[] = [];
+        items.forEach(item => {
+            const weight = (brandCounts[item.brand] || 0) + 1;
+            // Add item to pool 'weight' times (capped at 5 to prevent total domination)
+            const cap = Math.min(weight, 5); 
+            for(let k=0; k<cap; k++) weightedPool.push(item);
+        });
+        
+        return weightedPool[Math.floor(Math.random() * weightedPool.length)];
+    };
+
+    // --- SCORING SYSTEM ---
+    const scoreMatch = (anchor: ClothingItem, candidate: ClothingItem, style: 'chic' | 'playful'): number => {
+        let score = 0;
+        const c1 = anchor.color;
+        const c2 = candidate.color;
+
+        // --- RULE 1: Brand Matching (The "Set" Look) ---
+        // Organic Zoo / Loungewear vibe: If brands match, it might be a set.
+        if (anchor.brand !== 'Unknown' && anchor.brand === candidate.brand) {
+            score += 10; // Huge bonus for potential matching sets
+            if (isTonal(c1, c2)) score += 5; // Same brand + same color = Definite Set
+        }
+
+        // --- RULE 2: Color Theory ---
+        if (style === 'chic') {
+            // Chic = Organic Zoo / Minimalist
+            // Favors: Neutrals, Earth Tones, Monochrome
+            if (isTonal(c1, c2)) score += 8;
+            if (isNeutral(c1) && isNeutral(c2)) score += 5;
+            if (isEarthy(c1) && isEarthy(c2)) score += 6;
+            
+            // Penalty for clashing vibrant colors in Chic mode
+            if (!isNeutral(c1) && !isNeutral(c2) && !isEarthy(c1) && !isEarthy(c2)) score -= 5;
+
+        } else {
+            // Playful = Misha & Puff / Bobo Choses
+            // Favors: Color blocking, Pattern mixing
+            if (isTonal(c1, c2)) score += 2; // Boring for playful, but acceptable
+            
+            // Contrast is good
+            if (!isNeutral(c1) && isNeutral(c2)) score += 5; // Balance
+            
+            // "Misha & Puff" Logic: Earthy + Pastel usually works (e.g. Rust + Pale Pink)
+            if ((isEarthy(c1) && !isEarthy(c2) && !isNeutral(c2)) || (!isEarthy(c1) && isEarthy(c2) && !isNeutral(c1))) {
+                score += 6;
+            }
+        }
+
+        return score;
+    };
+
+    const buildOutfit = (style: 'chic' | 'playful'): ClothingItem[] => {
+        const outfit: ClothingItem[] = [];
+        
+        // 1. Pick Anchor
+        // Chic favors full body (rompers) or sets. Playful favors separates.
+        let useFullBody = false;
+        if (style === 'chic' && fullBody.length > 0 && Math.random() > 0.4) useFullBody = true;
+        
+        // Fallback if no separates available
+        if (tops.length === 0 || bottoms.length === 0) {
+            if (fullBody.length > 0) useFullBody = true;
+            else return [];
         }
 
         if (useFullBody) {
-            outfit.push(shuffledFull[0]);
+            const anchor = pickWeightedAnchor(fullBody);
+            if (anchor) outfit.push(anchor);
         } else {
-            // Pick Top
-            const top = shuffledTops[0];
+            const top = pickWeightedAnchor(tops);
+            if (!top) return [];
             outfit.push(top);
 
-            // Smart Bottom Matching
-            let candidateBottoms = getPairAffinity(top, shuffledBottoms);
+            // 2. Find Best Matching Bottom
+            // Calculate score for every available bottom against the top
+            const scoredBottoms = bottoms.map(b => ({
+                item: b,
+                score: scoreMatch(top, b, style) + (Math.random() * 4) // Add slight fuzz factor
+            }));
             
-            // 2. Filter by Style Rules
-            let validBottoms: ClothingItem[] = [];
+            // Sort by score descending
+            scoredBottoms.sort((a, b) => b.score - a.score);
             
-            if (style === 'chic') {
-                if (!isNeutral(top.color)) {
-                     validBottoms = candidateBottoms.filter(b => isNeutral(b.color) || isMonochrome(top.color, b.color));
-                } else {
-                     validBottoms = candidateBottoms;
-                }
-            } else {
-                if (!isNeutral(top.color)) {
-                    const neutralBottoms = candidateBottoms.filter(b => isNeutral(b.color));
-                    if (neutralBottoms.length > 0 && Math.random() > 0.5) {
-                        validBottoms = neutralBottoms;
-                    } else {
-                        validBottoms = candidateBottoms;
-                    }
-                } else {
-                    validBottoms = candidateBottoms;
-                }
+            // Pick the winner (or null if list empty)
+            if (scoredBottoms.length > 0) {
+                outfit.push(scoredBottoms[0].item);
             }
-
-            const bottom = validBottoms.length > 0 ? validBottoms[0] : candidateBottoms[0];
-            outfit.push(bottom);
         }
 
-        // -- Step 2: Layers --
-        if (temp < 19 && outerwear.length > 0) {
-            const baseItem = outfit[0];
-            const matchingOuter = outerwear.filter(o => isNeutral(o.color) || isMonochrome(baseItem.color, o.color));
-            
-            const outer = matchingOuter.length > 0 
-                ? matchingOuter[Math.floor(Math.random() * matchingOuter.length)] 
-                : outerwear[Math.floor(Math.random() * outerwear.length)];
-            
-            outfit.push(outer);
+        // 3. Add Layers (Outerwear)
+        if (temp < 18 && outerwear.length > 0 && outfit.length > 0) {
+            const base = outfit[0];
+            const scoredOuter = outerwear.map(o => ({
+                item: o,
+                score: scoreMatch(base, o, style)
+            }));
+            scoredOuter.sort((a, b) => b.score - a.score);
+            outfit.push(scoredOuter[0].item);
         }
 
-        // -- Step 3: Shoes --
-        if (shoes.length > 0) {
-            const baseItem = outfit[0];
-            const matchingShoes = shoes.filter(s => isNeutral(s.color) || isMonochrome(baseItem.color, s.color));
-            
-            const shoe = matchingShoes.length > 0 
-                ? matchingShoes[Math.floor(Math.random() * matchingShoes.length)] 
-                : shoes[Math.floor(Math.random() * shoes.length)];
-            
-            outfit.push(shoe);
+        // 4. Add Shoes
+        if (shoes.length > 0 && outfit.length > 0) {
+            const base = outfit[0]; // Match shoes to top/body usually
+            const scoredShoes = shoes.map(s => ({
+                item: s,
+                score: scoreMatch(base, s, style)
+            }));
+            scoredShoes.sort((a, b) => b.score - a.score);
+            outfit.push(scoredShoes[0].item);
         }
-        
-        // -- Step 4: Accessories --
-        if (accessories.length > 0 && (style === 'chic' || temp < 10)) {
-             const acc = accessories[Math.floor(Math.random() * accessories.length)];
-             outfit.push(acc);
+
+        // 5. Add Accessory (Hat/Bow)
+        // Chic: Only add if neutral/matching. Playful: Add for fun.
+        if (accessories.length > 0 && outfit.length > 0) {
+             const base = outfit[0];
+             const scoredAcc = accessories.map(a => ({
+                 item: a,
+                 score: scoreMatch(base, a, style)
+             }));
+             scoredAcc.sort((a, b) => b.score - a.score);
+             
+             // Threshold: Don't add accessory if it clashes too hard in Chic mode
+             if (style === 'playful' || scoredAcc[0].score > 0) {
+                 if (Math.random() > 0.5) outfit.push(scoredAcc[0].item);
+             }
         }
 
         return outfit;
     };
 
-    setSuggestion1(generateStyledOutfit('playful'));
-    setSuggestion2(generateStyledOutfit('chic'));
+    setSuggestion1(buildOutfit('playful'));
+    setSuggestion2(buildOutfit('chic'));
 
-  }, [allItems, weather, likedOutfits]);
+  }, [allItems, weather]); // Removed likedOutfits dependency to prevent instant reshuffle on like
 
   // --- OOTD AUTO-INIT ---
   useEffect(() => {
-    // Only auto-run if we have items
     if (allItems && allItems.length > 0) {
-        // NOTE: We deliberately do NOT include 'likedOutfits' in dependency array here.
-        // We don't want to regenerate the outfit immediately after the user likes it.
-        // We only regenerate if items change (added/removed) or weather changes.
         generateOutfits();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

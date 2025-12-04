@@ -13,6 +13,17 @@ class ClosetDatabase extends Dexie {
       profile: '++id, name',
       outfitLikes: '++id, *itemIds, style, date'
     });
+
+    // Migration to rename Sleepwear -> Pajamas
+    (this as any).version(3).stores({
+      items: '++id, brand, sizeLabel, category, dateAdded, isArchived'
+    }).upgrade((trans: any) => {
+        return trans.table("items").toCollection().modify((item: any) => {
+            if (item.category === 'Sleepwear') {
+                item.category = 'Pajamas';
+            }
+        });
+    });
   }
 }
 

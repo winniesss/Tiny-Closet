@@ -1,3 +1,4 @@
+
 export enum Season {
   Spring = 'Spring',
   Summer = 'Summer',
@@ -12,7 +13,10 @@ export enum Category {
   FullBody = 'Full Body',
   Shoes = 'Shoes',
   Outerwear = 'Outerwear',
-  Accessory = 'Accessory'
+  Accessory = 'Accessory',
+  Pajamas = 'Pajamas',
+  Swimwear = 'Swimwear',
+  Socks = 'Socks'
 }
 
 export interface ClothingItem {

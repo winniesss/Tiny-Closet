@@ -354,8 +354,11 @@ export const AddItem: React.FC = () => {
                 onClick={() => fileInputRef.current?.click()}
                 className="w-full bg-white text-slate-700 font-bold py-5 rounded-full shadow-sm hover:shadow-md transition-all text-lg flex items-center justify-center gap-3"
             >
-                <FileText size={24} /> Upload Order / File
+                <FileText size={24} /> Import Order Screenshot
             </button>
+            <p className="text-center text-xs text-slate-400 font-bold -mt-2">
+                Works with Shop App, Amazon, & Email receipts
+            </p>
           </div>
         </div>
       </div>
@@ -575,6 +578,7 @@ export const AddItem: React.FC = () => {
            <button 
              onClick={handleDeleteCurrent}
              className="absolute top-6 right-6 p-3 bg-white/90 backdrop-blur rounded-xl text-slate-400 hover:text-red-500 shadow-sm transition-colors"
+             title="Remove Item"
            >
              <Trash2 size={20} />
            </button>
