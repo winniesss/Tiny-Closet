@@ -42,11 +42,12 @@ export const Closet: React.FC = () => {
 
         // Brand Filter
         if (filterBrand !== 'All') {
-            const itemBrand = item.brand || 'Unknown';
+            const itemBrand = (item.brand || 'Unknown').trim();
             if (filterBrand === 'No Brand') {
-                if (itemBrand !== 'Unknown') return false;
+                if (itemBrand.toLowerCase() !== 'unknown') return false;
             } else {
-                if (itemBrand !== filterBrand) return false;
+                // Case-insensitive match
+                if (itemBrand.toLowerCase() !== filterBrand.toLowerCase()) return false;
             }
         }
 
@@ -70,32 +71,42 @@ export const Closet: React.FC = () => {
     });
   }, [items, activeTab, filterCategory, filterBrand, filterSeason, search]);
 
-  // --- Extract Available Brands for Filter ---
+  // --- Extract Available Brands for Filter (Smart Grouping) ---
   const availableBrands = useMemo(() => {
       if (!items) return [];
-      // Get items relevant to the current tab (Closet or Archive)
+      
       const contextItems = items.filter(i => {
           if (activeTab === 'Archive') return i.isArchived;
           if (activeTab === 'Closet') return !i.isArchived;
           return false;
       });
       
-      const brands = new Set<string>();
+      const counts = new Map<string, number>();
+      const displayNames = new Map<string, string>();
       let hasUnknown = false;
 
       contextItems.forEach(i => {
-          if (i.brand && i.brand !== 'Unknown') {
-              brands.add(i.brand);
+          if (i.brand && i.brand.trim() !== '' && i.brand !== 'Unknown') {
+              const norm = i.brand.trim().toLowerCase();
+              counts.set(norm, (counts.get(norm) || 0) + 1);
+              // Store the first "Display Case" version we see, or update if this one looks better (e.g. longer/Title Case?)
+              // For simplicity, keep first encountered title-case-ish one.
+              if (!displayNames.has(norm)) displayNames.set(norm, i.brand.trim());
           } else {
               hasUnknown = true;
           }
       });
 
-      const sortedBrands = Array.from(brands).sort();
-      if (hasUnknown && sortedBrands.length > 0) {
-          sortedBrands.push('No Brand');
+      // Sort by frequency (Desc)
+      const sortedEntries = Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
+      
+      // Take top 10
+      const topBrands = sortedEntries.slice(0, 10).map(([key]) => displayNames.get(key) || key);
+
+      if (hasUnknown) {
+          topBrands.push('No Brand');
       }
-      return sortedBrands;
+      return topBrands;
   }, [items, activeTab]);
 
   const showNotification = (msg: string) => {
@@ -204,6 +215,23 @@ export const Closet: React.FC = () => {
         </div>
       );
   };
+
+  // --- Loading Skeleton ---
+  if (!items) {
+      return (
+          <div className="p-6 pb-28 max-w-md mx-auto min-h-screen bg-orange-50 animate-pulse">
+             <div className="flex bg-slate-200 p-1.5 rounded-2xl shadow-sm mb-6 h-14"></div>
+             <div className="h-8 w-48 bg-slate-200 rounded-lg mb-8"></div>
+             <div className="h-12 bg-slate-200 rounded-2xl mb-8"></div>
+             <div className="grid grid-cols-2 gap-4">
+                 <div className="aspect-[3/4] bg-slate-200 rounded-[2rem]"></div>
+                 <div className="aspect-[3/4] bg-slate-200 rounded-[2rem]"></div>
+                 <div className="aspect-[3/4] bg-slate-200 rounded-[2rem]"></div>
+                 <div className="aspect-[3/4] bg-slate-200 rounded-[2rem]"></div>
+             </div>
+          </div>
+      );
+  }
 
   return (
     <div className="p-6 pb-28 max-w-md mx-auto min-h-screen bg-orange-50">
@@ -363,17 +391,17 @@ export const Closet: React.FC = () => {
                 </div>
 
                 {/* Brands Filter - Improved Visibility */}
-                {items && items.length > 0 && (
+                {items && items.length > 0 && availableBrands.length > 0 && (
                     <div className="flex flex-col gap-2">
                         <div className="flex items-center gap-2 px-1 text-slate-400 text-xs font-bold uppercase tracking-wider">
                             <Tag size={12} />
-                            <span>Filter by Brand</span>
+                            <span>Top Brands</span>
                         </div>
                         <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2 -mx-6 px-6">
                             <button
                                 onClick={() => setFilterBrand('All')}
                                 className={clsx(
-                                    "whitespace-nowrap px-4 py-2 rounded-xl text-xs font-bold transition-all border",
+                                    "whitespace-nowrap px-3 py-1.5 rounded-lg text-xs font-bold transition-all border",
                                     filterBrand === 'All'
                                         ? "bg-slate-800 text-white border-slate-800 shadow-sm"
                                         : "bg-white text-slate-500 border-slate-200 hover:border-slate-300"
@@ -386,7 +414,7 @@ export const Closet: React.FC = () => {
                                     key={brand}
                                     onClick={() => setFilterBrand(brand)}
                                     className={clsx(
-                                        "whitespace-nowrap px-4 py-2 rounded-xl text-xs font-bold transition-all border",
+                                        "whitespace-nowrap px-3 py-1.5 rounded-lg text-xs font-bold transition-all border",
                                         filterBrand === brand
                                             ? "bg-slate-800 text-white border-slate-800 shadow-sm"
                                             : "bg-white text-slate-500 border-slate-200 hover:border-slate-300"

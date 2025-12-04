@@ -6,12 +6,15 @@ import { ChildProfile } from '../types';
 import { Camera, User, Download, UploadCloud, CheckCircle2, AlertCircle, HelpCircle, RefreshCw, Settings as SettingsIcon, Info } from 'lucide-react';
 import clsx from 'clsx';
 
+const CURRENT_VERSION = '1.8';
+
 export const Settings: React.FC = () => {
   const profiles = useLiveQuery(() => db.profile.toArray());
   const [editing, setEditing] = useState<Partial<ChildProfile>>({});
   const [message, setMessage] = useState('');
   const [importError, setImportError] = useState('');
   const [activeTab, setActiveTab] = useState<'config' | 'faq'>('config');
+  const [hasNewVersion, setHasNewVersion] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
@@ -40,6 +43,22 @@ export const Settings: React.FC = () => {
       setEditing(profiles[0]);
     }
   }, [profiles]);
+
+  // Check for new version hint
+  useEffect(() => {
+      const lastSeen = localStorage.getItem('tiny_closet_last_seen_version');
+      if (lastSeen !== CURRENT_VERSION) {
+          setHasNewVersion(true);
+      }
+  }, []);
+
+  const handleTabChange = (tab: 'config' | 'faq') => {
+      setActiveTab(tab);
+      if (tab === 'faq' && hasNewVersion) {
+          setHasNewVersion(false);
+          localStorage.setItem('tiny_closet_last_seen_version', CURRENT_VERSION);
+      }
+  };
 
   const handleSave = async () => {
     if (editing.id && editing.name && editing.birthDate) {
@@ -151,6 +170,9 @@ export const Settings: React.FC = () => {
       window.location.href = url.toString();
   };
 
+  // Check if user is in "First Time" mode (default name)
+  const isSetupMode = !editing.name || editing.name === 'My Kid';
+
   return (
     <div className="p-6 max-w-md mx-auto min-h-screen bg-orange-50 pb-28">
       <div className="flex justify-between items-center mb-8">
@@ -158,7 +180,7 @@ export const Settings: React.FC = () => {
         
         <div className="flex bg-white rounded-full p-1 shadow-sm border border-slate-100">
             <button 
-                onClick={() => setActiveTab('config')}
+                onClick={() => handleTabChange('config')}
                 className={clsx(
                     "px-4 py-2 rounded-full text-xs font-bold transition-all flex items-center gap-2",
                     activeTab === 'config' 
@@ -169,14 +191,17 @@ export const Settings: React.FC = () => {
                 <SettingsIcon size={14} /> Config
             </button>
             <button 
-                onClick={() => setActiveTab('faq')}
+                onClick={() => handleTabChange('faq')}
                 className={clsx(
-                    "px-4 py-2 rounded-full text-xs font-bold transition-all flex items-center gap-2",
+                    "px-4 py-2 rounded-full text-xs font-bold transition-all flex items-center gap-2 relative",
                     activeTab === 'faq' 
                         ? "bg-orange-400 text-white shadow-sm" 
                         : "text-slate-400 hover:text-slate-600"
                 )}
             >
+                {hasNewVersion && (
+                    <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-white"></span>
+                )}
                 <Info size={14} /> FAQ
             </button>
         </div>
@@ -187,66 +212,77 @@ export const Settings: React.FC = () => {
             <div className="mb-6 bg-white p-6 rounded-[2.5rem] shadow-sm">
                 <h2 className="text-lg text-slate-800 mb-6 font-serif">Child Profile</h2>
                 
-                <div className="space-y-6">
-                <div className="flex flex-col items-center mb-6">
-                    <div 
-                    className="relative w-24 h-24 rounded-full bg-slate-100 border-4 border-white shadow-md overflow-hidden cursor-pointer group"
-                    onClick={() => fileInputRef.current?.click()}
-                    >
-                    {editing.avatar ? (
-                        <img src={editing.avatar} alt="Profile" className="w-full h-full object-cover" />
-                    ) : (
-                        <div className="w-full h-full flex items-center justify-center text-slate-300">
-                        <User size={40} />
+                <div className={clsx("flex transition-all duration-300", isSetupMode ? "flex-col items-center gap-6" : "flex-row items-start gap-4")}>
+                    <div className="flex flex-col items-center shrink-0">
+                        <div 
+                        className={clsx(
+                            "relative rounded-full bg-slate-100 border-4 border-white shadow-md overflow-hidden cursor-pointer group transition-all duration-300",
+                            isSetupMode ? "w-32 h-32" : "w-16 h-16"
+                        )}
+                        onClick={() => fileInputRef.current?.click()}
+                        >
+                        {editing.avatar ? (
+                            <img src={editing.avatar} alt="Profile" className="w-full h-full object-cover" />
+                        ) : (
+                            <div className="w-full h-full flex items-center justify-center text-slate-300">
+                            <User size={isSetupMode ? 48 : 24} />
+                            </div>
+                        )}
+                        <div className="absolute inset-0 bg-black/20 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                            <Camera className="text-white" size={isSetupMode ? 32 : 16} />
                         </div>
-                    )}
-                    <div className="absolute inset-0 bg-black/20 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                        <Camera className="text-white" size={24} />
+                        </div>
+                        <button 
+                        onClick={() => fileInputRef.current?.click()}
+                        className="mt-2 text-xs font-bold text-sky-500 hover:text-sky-600"
+                        >
+                        Change
+                        </button>
+                        <input 
+                        type="file" 
+                        ref={fileInputRef} 
+                        className="hidden" 
+                        accept="image/*"
+                        onChange={handleAvatarChange} 
+                        />
                     </div>
+
+                    <div className={clsx("w-full space-y-3", isSetupMode ? "" : "pt-1")}>
+                        <div className="group">
+                            <label className="block text-xs font-bold text-slate-400 mb-1 ml-1">Name</label>
+                            <input 
+                            type="text" 
+                            className={clsx(
+                                "w-full bg-slate-50 rounded-2xl text-slate-800 font-bold focus:outline-none focus:ring-2 focus:ring-sky-200 transition-all placeholder:text-slate-300",
+                                isSetupMode ? "px-5 py-4 text-lg" : "px-4 py-2 text-sm"
+                            )}
+                            value={editing.name || ''}
+                            onChange={e => setEditing({...editing, name: e.target.value})}
+                            placeholder="Child's Name"
+                            />
+                        </div>
+                        <div className="group">
+                            <label className="block text-xs font-bold text-slate-400 mb-1 ml-1">Date of Birth</label>
+                            <input 
+                            type="date" 
+                            className={clsx(
+                                "w-full bg-slate-50 rounded-2xl text-slate-800 font-bold focus:outline-none focus:ring-2 focus:ring-sky-200 transition-all appearance-none text-left",
+                                isSetupMode ? "px-5 py-4 text-lg min-h-[60px]" : "px-4 py-2 text-sm min-h-[40px]"
+                            )}
+                            value={editing.birthDate || ''}
+                            onChange={e => setEditing({...editing, birthDate: e.target.value})}
+                            />
+                        </div>
                     </div>
-                    <button 
-                    onClick={() => fileInputRef.current?.click()}
-                    className="mt-2 text-xs font-bold text-sky-500 hover:text-sky-600"
-                    >
-                    Change Photo
-                    </button>
-                    <input 
-                    type="file" 
-                    ref={fileInputRef} 
-                    className="hidden" 
-                    accept="image/*"
-                    onChange={handleAvatarChange} 
-                    />
                 </div>
 
-                <div className="group">
-                    <label className="block text-xs font-bold text-slate-400 mb-2 ml-1">Name</label>
-                    <input 
-                    type="text" 
-                    className="w-full px-5 py-4 bg-slate-50 rounded-2xl text-slate-800 font-bold text-lg focus:outline-none focus:ring-2 focus:ring-sky-200 transition-all placeholder:text-slate-300"
-                    value={editing.name || ''}
-                    onChange={e => setEditing({...editing, name: e.target.value})}
-                    placeholder="Child's Name"
-                    />
-                </div>
-                <div className="group">
-                    <label className="block text-xs font-bold text-slate-400 mb-2 ml-1">Date of Birth</label>
-                    <input 
-                    type="date" 
-                    className="w-full px-5 py-4 bg-slate-50 rounded-2xl text-slate-800 font-bold text-lg focus:outline-none focus:ring-2 focus:ring-sky-200 transition-all appearance-none text-left min-h-[60px]"
-                    value={editing.birthDate || ''}
-                    onChange={e => setEditing({...editing, birthDate: e.target.value})}
-                    />
-                </div>
-                
                 <button 
                     onClick={handleSave}
-                    className="w-full bg-sky-400 text-white font-bold py-5 rounded-full shadow-lg hover:scale-[1.02] transition-transform text-lg mt-4 flex justify-center items-center gap-2"
+                    className="w-full bg-sky-400 text-white font-bold py-5 rounded-full shadow-lg hover:scale-[1.02] transition-transform text-lg mt-6 flex justify-center items-center gap-2"
                 >
                     {message === 'Settings Saved!' ? <CheckCircle2 size={20} /> : null}
                     {message || 'Save Changes'}
                 </button>
-                </div>
             </div>
 
             <div className="mb-8 bg-white p-6 rounded-[2.5rem] shadow-sm">
@@ -346,7 +382,7 @@ export const Settings: React.FC = () => {
             </div>
 
             <div className="mt-12 text-center pb-4">
-                <p className="text-slate-300 text-xs font-bold mb-3">Tiny Closet v1.8</p>
+                <p className="text-slate-300 text-xs font-bold mb-3">Tiny Closet v{CURRENT_VERSION}</p>
                 <button 
                 onClick={handleReload}
                 className="inline-flex items-center gap-2 text-sky-400 text-xs font-bold bg-white px-4 py-2 rounded-full shadow-sm hover:bg-sky-50 transition-colors"

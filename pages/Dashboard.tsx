@@ -436,6 +436,7 @@ export const Dashboard: React.FC = () => {
   const outgrownItems = allItems?.filter(item => {
     if (!currentKid?.birthDate) return false;
     if (!item.sizeLabel) return false;
+    if (item.ignoreOutgrown) return false;
     
     const currentAgeMonths = getAgeInMonths(currentKid.birthDate);
     const maxMonths = parseSizeToMaxMonths(item.sizeLabel);
@@ -463,6 +464,36 @@ export const Dashboard: React.FC = () => {
           setSelectedItem(null);
       }
   };
+
+  const handleIgnoreOutgrown = async (item: ClothingItem) => {
+      if (item.id) {
+          await db.items.update(item.id, { ignoreOutgrown: true });
+          setSelectedItem(null);
+          setNotification("Marked as fitting");
+          setTimeout(() => setNotification(null), 2000);
+      }
+  };
+
+  // Prevent flicker by showing skeleton if data is still loading (undefined)
+  if (!allItems) {
+    return (
+      <div className="p-6 pb-28 max-w-md mx-auto animate-pulse">
+        <header className="mb-8 pt-4 flex justify-between items-end">
+            <div>
+                <div className="h-8 w-32 bg-slate-200 rounded-lg mb-2"></div>
+                <div className="h-4 w-24 bg-slate-200 rounded-lg"></div>
+            </div>
+            <div className="h-12 w-12 rounded-full bg-slate-200"></div>
+        </header>
+        <div className="h-32 bg-slate-200 rounded-[2rem] mb-10"></div>
+        <div className="h-8 w-40 bg-slate-200 rounded-lg mb-4"></div>
+        <div className="grid grid-cols-2 gap-4">
+            <div className="aspect-[3/4] bg-slate-200 rounded-[2rem]"></div>
+            <div className="aspect-[3/4] bg-slate-200 rounded-[2rem]"></div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 pb-28 max-w-md mx-auto">
@@ -663,6 +694,8 @@ export const Dashboard: React.FC = () => {
         item={selectedItem} 
         onClose={() => setSelectedItem(null)} 
         onToggleArchive={handleToggleArchive}
+        isOutgrown={outgrownItems.some(i => i.id === selectedItem?.id)}
+        onIgnoreOutgrown={handleIgnoreOutgrown}
       />
     </div>
   );

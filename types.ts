@@ -1,4 +1,5 @@
 
+
 export enum Season {
   Spring = 'Spring',
   Summer = 'Summer',
@@ -30,6 +31,7 @@ export interface ClothingItem {
   description?: string;
   dateAdded: number;
   isArchived?: boolean;
+  ignoreOutgrown?: boolean;
 }
 
 export interface OutfitLike {
