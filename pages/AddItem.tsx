@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Camera, Loader2, X, ChevronLeft, ChevronRight, Trash2, Sparkles, ExternalLink, AlertTriangle, Search, FileText, ImageOff, Link as LinkIcon, Check, Crop as CropIcon, ZoomIn, Move, ArrowLeft } from 'lucide-react';
+import { Camera, Loader2, X, ChevronLeft, ChevronRight, Trash2, Sparkles, ExternalLink, AlertTriangle, Search, FileText, ImageOff, Link as LinkIcon, Check, Crop as CropIcon, ZoomIn, Move, ArrowLeft, RotateCw } from 'lucide-react';
 import { analyzeClothingImage, findBetterItemImage } from '../services/geminiService';
 import { db } from '../db';
 import { ClothingItem, Category, Season } from '../types';
@@ -21,6 +21,7 @@ export const AddItem: React.FC = () => {
   // Crop States
   const [cropScale, setCropScale] = useState(1);
   const [cropPos, setCropPos] = useState({ x: 0, y: 0 });
+  const [rotation, setRotation] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const dragStart = useRef({ x: 0, y: 0 });
   const imgRef = useRef<HTMLImageElement>(null);
@@ -73,6 +74,7 @@ export const AddItem: React.FC = () => {
       setOriginalImage(base64);
       setCropScale(1);
       setCropPos({ x: 0, y: 0 });
+      setRotation(0);
       setStep('preview');
       
       // Reset input so same file can be selected again if needed
@@ -144,7 +146,11 @@ export const AddItem: React.FC = () => {
     ctx.translate(containerRect.width / 2, containerRect.height / 2);
     
     // Apply user transforms
+    // Translate happens in the rotated coordinate space if we rotate first? 
+    // We want the pan to be intuitive (screen space). 
+    // Standard order: Translate -> Rotate -> Scale
     ctx.translate(cropPos.x, cropPos.y);
+    ctx.rotate((rotation * Math.PI) / 180);
     ctx.scale(cropScale, cropScale);
     
     ctx.drawImage(
@@ -202,6 +208,14 @@ export const AddItem: React.FC = () => {
     const updatedItems = [...reviewItems];
     updatedItems[currentIndex] = { ...updatedItems[currentIndex], [field]: value };
     setReviewItems(updatedItems);
+  };
+
+  const handleFocus = (field: keyof ClothingItem) => {
+    const val = reviewItems[currentIndex][field];
+    // Check if the value is specifically "Unknown" (case-insensitive) and clear it if so
+    if (typeof val === 'string' && val.toLowerCase() === 'unknown') {
+      handleUpdateCurrentItem(field, '');
+    }
   };
 
   const toggleSeason = (s: Season) => {
@@ -301,7 +315,7 @@ export const AddItem: React.FC = () => {
 
   if (step === 'upload') {
     return (
-      <div className="h-screen flex flex-col bg-orange-50 relative">
+      <div className="h-screen flex flex-col bg-orange-50 relative pb-20">
         <button 
             onClick={() => navigate('/')}
             className="absolute top-6 right-6 p-3 bg-white rounded-full text-slate-400 hover:text-slate-600 shadow-sm z-10"
@@ -374,10 +388,10 @@ export const AddItem: React.FC = () => {
                </div>
   
                {/* Footer Actions */}
-               <div className="p-6 pb-12 bg-slate-900 flex gap-4 justify-center items-center">
+               <div className="p-6 pb-28 bg-slate-900 flex gap-6 justify-center items-center">
                    <button 
                       onClick={() => setStep('crop')}
-                      className="flex flex-col items-center gap-1 text-slate-400 hover:text-white transition-colors p-4"
+                      className="flex flex-col items-center gap-1 text-slate-400 hover:text-white transition-colors p-2"
                    >
                       <CropIcon size={24} />
                       <span className="text-xs font-bold">Crop</span>
@@ -385,9 +399,10 @@ export const AddItem: React.FC = () => {
   
                    <button 
                       onClick={() => startAnalysis(originalImage!)}
-                      className="flex-1 bg-sky-400 text-white font-bold py-4 rounded-full shadow-lg hover:bg-sky-500 transition-all flex items-center justify-center gap-2"
+                      className="flex-1 bg-gradient-to-r from-sky-400 to-blue-500 text-white font-bold py-4 rounded-full shadow-lg hover:shadow-sky-500/30 hover:scale-105 transition-all flex items-center justify-center gap-2"
                    >
-                      <Sparkles size={20} /> Analyze
+                      <Sparkles size={20} fill="currentColor" className="text-white/20" /> 
+                      <span>Analyze</span>
                    </button>
                </div>
           </div>
@@ -396,80 +411,102 @@ export const AddItem: React.FC = () => {
 
   if (step === 'crop') {
       return (
-          <div className="h-screen flex flex-col bg-slate-900 overflow-hidden touch-none">
-              <div className="flex-none p-4 flex justify-between items-center bg-slate-900 z-10">
-                  <button 
-                    onClick={() => setStep('preview')}
-                    className="p-2 text-white/70 hover:text-white"
-                  >
-                      <ArrowLeft size={24} />
-                  </button>
-                  <h1 className="text-white font-bold">Adjust Photo</h1>
-                  <button 
-                    onClick={confirmCrop}
-                    className="p-2 text-sky-400 font-bold hover:text-sky-300"
-                  >
-                      Next
-                  </button>
-              </div>
-
-              <div className="flex-1 relative flex items-center justify-center p-6">
+          <div className="fixed inset-0 z-50 flex flex-col bg-black touch-none">
+              {/* Main Crop Area */}
+              <div className="flex-1 relative flex items-center justify-center overflow-hidden w-full h-full p-8">
                   {/* Crop Container - 3:4 Aspect Ratio */}
                   <div 
                     ref={cropContainerRef}
-                    className="relative w-full max-w-sm aspect-[3/4] bg-slate-800 overflow-hidden rounded-2xl shadow-2xl border-2 border-white/20 touch-none"
+                    className="relative w-full max-w-sm aspect-[3/4] bg-transparent touch-none z-10"
                     onPointerDown={handlePointerDown}
                     onPointerMove={handlePointerMove}
                     onPointerUp={handlePointerUp}
                     onPointerLeave={handlePointerUp}
                   >
+                      {/* Masking/Border Overlay */}
+                      <div className="absolute inset-0 border border-white/50 pointer-events-none z-20 shadow-[0_0_0_9999px_rgba(0,0,0,0.8)]">
+                           {/* Corner Handles */}
+                           <div className="absolute top-0 left-0 w-6 h-6 border-t-4 border-l-4 border-white -mt-0.5 -ml-0.5"></div>
+                           <div className="absolute top-0 right-0 w-6 h-6 border-t-4 border-r-4 border-white -mt-0.5 -mr-0.5"></div>
+                           <div className="absolute bottom-0 left-0 w-6 h-6 border-b-4 border-l-4 border-white -mb-0.5 -ml-0.5"></div>
+                           <div className="absolute bottom-0 right-0 w-6 h-6 border-b-4 border-r-4 border-white -mb-0.5 -mr-0.5"></div>
+                           
+                           {/* Grid Lines */}
+                           <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 opacity-30">
+                              <div className="border-r border-b border-white"></div>
+                              <div className="border-r border-b border-white"></div>
+                              <div className="border-b border-white"></div>
+                              <div className="border-r border-b border-white"></div>
+                              <div className="border-r border-b border-white"></div>
+                              <div className="border-b border-white"></div>
+                              <div className="border-r border-white"></div>
+                              <div className="border-r border-white"></div>
+                           </div>
+                      </div>
+
                       {originalImage && (
-                          <div className="w-full h-full flex items-center justify-center pointer-events-none">
+                          <div className="absolute inset-0 flex items-center justify-center pointer-events-none overflow-visible">
                             <img 
                                 ref={imgRef}
                                 src={originalImage} 
                                 alt="Crop Target" 
-                                className="max-w-full max-h-full object-contain pointer-events-none select-none transition-transform duration-75 ease-out"
+                                className="max-w-none max-h-none pointer-events-none select-none origin-center"
                                 style={{ 
-                                    transform: `translate(${cropPos.x}px, ${cropPos.y}px) scale(${cropScale})` 
+                                    transform: `translate(${cropPos.x}px, ${cropPos.y}px) rotate(${rotation}deg) scale(${cropScale})`,
+                                    // Ensure image is large enough to be cropped? It depends on scale.
+                                    // We use max-w-[none] to allow it to be scaled up freely without CSS constraints.
+                                    width: 'auto',
+                                    height: 'auto',
+                                    // Use a reasonable base size if needed, but 'auto' works if src is loaded.
+                                    // Limiting to viewport width initially might be good practice in JS but here CSS handles it via the flex centering.
+                                    minWidth: '100%',
+                                    minHeight: '100%'
                                 }}
                             />
                           </div>
                       )}
-                      
-                      {/* Guide Overlay */}
-                      <div className="absolute inset-0 pointer-events-none border border-white/30 grid grid-cols-3 grid-rows-3">
-                          <div className="border-r border-b border-white/10"></div>
-                          <div className="border-r border-b border-white/10"></div>
-                          <div className="border-b border-white/10"></div>
-                          <div className="border-r border-b border-white/10"></div>
-                          <div className="border-r border-b border-white/10"></div>
-                          <div className="border-b border-white/10"></div>
-                          <div className="border-r border-white/10"></div>
-                          <div className="border-r border-white/10"></div>
-                          <div></div>
-                      </div>
                   </div>
               </div>
 
-              <div className="flex-none bg-slate-900 p-6 pb-12">
-                  <div className="max-w-xs mx-auto space-y-4">
-                      <div className="flex items-center gap-4 text-white/50">
-                          <ZoomIn size={16} />
-                          <input 
-                            type="range" 
-                            min="1" 
-                            max="3" 
-                            step="0.05"
-                            value={cropScale}
-                            onChange={(e) => setCropScale(parseFloat(e.target.value))}
-                            className="w-full accent-sky-400 h-1 bg-white/20 rounded-lg appearance-none cursor-pointer"
-                          />
+              {/* Bottom Control Bar */}
+              <div className="flex-none bg-zinc-900 pb-safe pt-6 px-6 pb-8">
+                  <div className="max-w-md mx-auto">
+                      <div className="flex items-center gap-6 mb-8 px-2">
+                          <button 
+                            onClick={() => setRotation(r => r + 90)}
+                            className="p-2 text-white/70 hover:text-white transition-colors rounded-full hover:bg-white/10"
+                            title="Rotate"
+                          >
+                              <RotateCw size={22} />
+                          </button>
+                          
+                          <div className="flex-1 flex items-center gap-3">
+                              <ZoomIn size={16} className="text-white/50" />
+                              <input 
+                                type="range" 
+                                min="0.5" 
+                                max="3" 
+                                step="0.05"
+                                value={cropScale}
+                                onChange={(e) => setCropScale(parseFloat(e.target.value))}
+                                className="w-full h-1 bg-white/20 rounded-lg appearance-none cursor-pointer accent-white"
+                              />
+                          </div>
                       </div>
-                      <div className="flex justify-center">
-                          <p className="text-xs text-white/40 flex items-center gap-2">
-                              <Move size={12} /> Drag to position
-                          </p>
+
+                      <div className="flex justify-between items-center">
+                          <button 
+                            onClick={() => setStep('preview')}
+                            className="text-white font-medium px-4 py-2 hover:bg-white/10 rounded-lg transition-colors"
+                          >
+                              Cancel
+                          </button>
+                          <button 
+                            onClick={confirmCrop}
+                            className="bg-[#07C160] text-white px-6 py-2 rounded-lg font-bold shadow-md active:scale-95 transition-transform hover:bg-[#06ad56]"
+                          >
+                              Done
+                          </button>
                       </div>
                   </div>
               </div>
@@ -716,6 +753,7 @@ export const AddItem: React.FC = () => {
                     type="text" 
                     value={currentItem.brand || ''} 
                     onChange={e => handleUpdateCurrentItem('brand', e.target.value)}
+                    onFocus={() => handleFocus('brand')}
                     className="w-full px-5 py-4 bg-slate-50 rounded-2xl text-slate-800 font-bold focus:outline-none focus:ring-2 focus:ring-sky-200 transition-all placeholder:text-slate-300"
                     placeholder="e.g. Zara"
                 />
@@ -727,6 +765,7 @@ export const AddItem: React.FC = () => {
                 type="text" 
                 value={currentItem.description || ''} 
                 onChange={e => handleUpdateCurrentItem('description', e.target.value)}
+                onFocus={() => handleFocus('description')}
                 className="w-full px-5 py-4 bg-slate-50 rounded-2xl text-slate-800 font-medium focus:outline-none focus:ring-2 focus:ring-sky-200 transition-all placeholder:text-slate-300"
                 placeholder="Blue T-Shirt"
                 />
@@ -739,6 +778,7 @@ export const AddItem: React.FC = () => {
                     type="text" 
                     value={currentItem.sizeLabel || ''} 
                     onChange={e => handleUpdateCurrentItem('sizeLabel', e.target.value)}
+                    onFocus={() => handleFocus('sizeLabel')}
                     className="w-full px-5 py-4 bg-slate-50 rounded-2xl text-slate-800 font-bold focus:outline-none focus:ring-2 focus:ring-sky-200 transition-all placeholder:text-slate-300"
                     placeholder="4T"
                     />
@@ -749,6 +789,7 @@ export const AddItem: React.FC = () => {
                     type="text" 
                     value={currentItem.color || ''} 
                     onChange={e => handleUpdateCurrentItem('color', e.target.value)}
+                    onFocus={() => handleFocus('color')}
                     className="w-full px-5 py-4 bg-slate-50 rounded-2xl text-slate-800 font-bold focus:outline-none focus:ring-2 focus:ring-sky-200 transition-all placeholder:text-slate-300"
                     placeholder="Blue"
                     />

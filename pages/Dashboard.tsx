@@ -3,17 +3,12 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
 import { WeatherWidget } from '../components/WeatherWidget';
 import { WeatherData, ClothingItem, Season, Category } from '../types';
-import { Shirt, AlertCircle, Cake, Archive, CheckCircle2 } from 'lucide-react';
+import { Shirt, AlertCircle, Cake, Archive, CheckCircle2, MapPin, RefreshCw, Sparkles, Heart } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Logo } from '../components/Logo';
 import { ItemDetailModal } from '../components/ItemDetailModal';
-
-// Mock weather for demo purposes
-const MOCK_WEATHER: WeatherData = {
-  condition: 'Cloudy',
-  temp: 18,
-  description: "Perfect for layers!"
-};
+import { getCoordinates, fetchWeather } from '../services/weatherService';
+import clsx from 'clsx';
 
 const calculateAge = (birthDateString: string): string => {
     const today = new Date();
@@ -40,42 +35,102 @@ const getAgeInMonths = (birthDateString: string): number => {
     return (years * 12) + months;
 };
 
-// Heuristic to convert size label to max age in months
 const parseSizeToMaxMonths = (size: string | undefined): number | null => {
     if (!size) return null;
     const s = size.toUpperCase().replace(/\s/g, '');
-    
-    // Handle "Months" (e.g. "6-9M", "3M")
     if (s.includes('M')) {
-        // Find all numbers
         const numbers = s.match(/\d+/g);
-        if (numbers && numbers.length > 0) {
-            // Take the largest number (e.g. 6-9M -> 9)
-            return parseInt(numbers[numbers.length - 1], 10);
-        }
+        if (numbers && numbers.length > 0) return parseInt(numbers[numbers.length - 1], 10);
     }
-    
-    // Handle "Years" / "Toddler" (e.g. "2T", "3Y", "4", "1-2Y")
     if (s.includes('T') || s.includes('Y')) {
         const numbers = s.match(/\d+/g);
-        if (numbers && numbers.length > 0) {
-            // Take the last number to handle ranges (e.g. "1-2Y" -> take 2).
-            // Multiply by 12 for months.
-            return parseInt(numbers[numbers.length - 1], 10) * 12;
-        }
+        if (numbers && numbers.length > 0) return parseInt(numbers[numbers.length - 1], 10) * 12;
     }
-
-    // Handle plain numbers usually as Years if small < 16, but could be tricky. 
-    // Let's assume plain numbers < 14 are years for kids clothes (e.g. Size 4, Size 6)
     const plainNum = parseInt(s, 10);
-    if (!isNaN(plainNum) && plainNum < 14) {
-        return plainNum * 12;
-    }
-
-    // Newborn
-    if (s === 'NB' || s === 'NEWBORN') return 1; // 0-1 month
-
+    if (!isNaN(plainNum) && plainNum < 14) return plainNum * 12;
+    if (s === 'NB' || s === 'NEWBORN') return 1;
     return null;
+};
+
+const OutfitCollage: React.FC<{ items: ClothingItem[], onClickItem: (i: ClothingItem) => void }> = ({ items, onClickItem }) => {
+    // Categorize items for layout
+    const outer = items.find(i => i.category === Category.Outerwear);
+    const top = items.find(i => [Category.Top, Category.Dress, Category.FullBody, Category.Pajamas, Category.Swimwear].includes(i.category));
+    const bottom = items.find(i => [Category.Bottom, Category.Skirt, Category.Underwear].includes(i.category));
+    const shoes = items.find(i => i.category === Category.Shoes);
+    // Treat socks as accessories for display purposes in the collage to ensure they appear
+    const acc = items.find(i => [Category.Accessory, Category.Sock].includes(i.category));
+
+    // Determines if we have a "One Piece" outfit (Dress/Fullbody) or "Two Piece" (Top/Bottom)
+    const isOnePiece = top && [Category.Dress, Category.FullBody, Category.Pajamas, Category.Swimwear].includes(top.category);
+
+    const ItemBox = ({ item, className }: { item?: ClothingItem, className?: string }) => (
+        item ? (
+            <div 
+                onClick={() => onClickItem(item)}
+                className={clsx(
+                    "relative overflow-hidden rounded-[1.5rem] bg-white border border-slate-100 shadow-sm cursor-pointer transition-transform active:scale-95 flex items-center justify-center p-2 group",
+                    className
+                )}
+            >
+                <img src={item.image} alt={item.category} className="max-w-full max-h-full object-contain drop-shadow-sm group-hover:scale-105 transition-transform duration-500" />
+                <div className="absolute bottom-2 left-2 bg-white/80 backdrop-blur px-2 py-0.5 rounded-lg text-[10px] font-bold text-slate-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                    {item.brand}
+                </div>
+                {item.isFavorite && (
+                    <div className="absolute top-2 right-2 bg-white/90 backdrop-blur p-1 rounded-full shadow-sm text-red-500">
+                        <Heart size={10} fill="currentColor" />
+                    </div>
+                )}
+            </div>
+        ) : null
+    );
+
+    return (
+        <div className="bg-white rounded-[2.5rem] p-4 shadow-xl shadow-slate-200/50 border border-slate-50">
+            <div className="flex flex-col gap-3 min-h-[320px]">
+                {/* Main Body Area */}
+                <div className="flex gap-3 flex-1 min-h-0">
+                    {/* Left Column: Outerwear (if exists) + Top */}
+                    <div className="flex-1 flex flex-col gap-3">
+                        {outer && <ItemBox item={outer} className="h-1/3 bg-slate-50" />}
+                        <ItemBox item={top} className={clsx("bg-orange-50/50", outer ? "h-2/3" : "h-full")} />
+                    </div>
+
+                    {/* Right Column: Bottom + Shoes */}
+                    <div className="flex-1 flex flex-col gap-3">
+                         {isOnePiece ? (
+                             // If dress, maybe show accessories or just empty/full height dress on left
+                             // Let's put accessories here if one piece
+                             <div className="flex-1 flex flex-col gap-3">
+                                 {acc ? <ItemBox item={acc} className="h-1/3 bg-pink-50/50" /> : <div className="h-1/3 rounded-[1.5rem] bg-slate-50/50 border border-dashed border-slate-200 flex items-center justify-center text-slate-200 text-xs font-bold">No Acc</div>}
+                                 {/* If it's a dress, the "Top" slot on left covers the main garment. Right side is mostly accessories/empty? 
+                                     Actually, let's span the Dress across if no bottom.
+                                     For now, let's keep the grid simple. If no bottom, the slot is empty or we use it for shoes.
+                                 */}
+                                 <ItemBox item={shoes} className="flex-1 bg-slate-50" />
+                             </div>
+                         ) : (
+                             <>
+                                <ItemBox item={bottom} className="flex-1 bg-blue-50/30" />
+                                {shoes && <ItemBox item={shoes} className="h-1/3 bg-slate-50" />}
+                             </>
+                         )}
+                    </div>
+                </div>
+                
+                {/* Horizontal Accessory bar if not placed yet (e.g. if 2-piece outfit) */}
+                {!isOnePiece && acc && (
+                    <div className="h-20 flex gap-3">
+                         <ItemBox item={acc} className="w-20 bg-pink-50/50" />
+                         <div className="flex-1 rounded-[1.5rem] bg-slate-50/30 border border-dashed border-slate-200 flex items-center justify-center">
+                             <span className="text-slate-300 text-xs font-bold font-serif italic">The Details</span>
+                         </div>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
 };
 
 export const Dashboard: React.FC = () => {
@@ -85,91 +140,165 @@ export const Dashboard: React.FC = () => {
   const [justArchivedCount, setJustArchivedCount] = useState(0);
   const [selectedItem, setSelectedItem] = useState<ClothingItem | null>(null);
   
+  // Weather State
+  const [weather, setWeather] = useState<WeatherData>({
+    condition: 'Sunny',
+    temp: 20,
+    description: 'Fetching forecast...'
+  });
+  const [locationEnabled, setLocationEnabled] = useState(false);
+
   const profile = useLiveQuery(() => db.profile.toArray());
-  // Only fetch active items for suggestions
   const allItems = useLiveQuery(() => db.items.filter(i => !i.isArchived).toArray());
-  
   const currentKid = profile?.[0];
 
+  // Initialize Weather
+  useEffect(() => {
+    const initWeather = async () => {
+        try {
+            const coords = await getCoordinates();
+            setLocationEnabled(true);
+            const data = await fetchWeather(coords.lat, coords.lon);
+            setWeather(data);
+        } catch (e) {
+            console.log("Using default weather", e);
+            setLocationEnabled(false);
+            setWeather({ condition: 'Sunny', temp: 22, description: 'Local weather unavailable' });
+        }
+    };
+    initWeather();
+  }, []);
+
+  // OUTFIT ALGORITHM
   useEffect(() => {
     if (!allItems || allItems.length === 0) return;
 
-    let targetSeason: Season = Season.All;
-    const temp = MOCK_WEATHER.temp;
+    const generateSmartOutfit = (seed: number): ClothingItem[] => {
+        const t = weather.temp;
+        let suitableSeasons: Season[] = [Season.All];
+        let needsOuterwear = false;
+        let preferLayers = false;
+        
+        // Temperature Logic
+        if (t >= 26) {
+            suitableSeasons = [Season.Summer];
+        } else if (t >= 20) {
+            suitableSeasons = [Season.Summer, Season.Spring];
+        } else if (t >= 15) {
+            suitableSeasons = [Season.Spring, Season.Fall];
+            if (t < 18) preferLayers = true;
+        } else if (t >= 10) {
+            suitableSeasons = [Season.Fall, Season.Winter];
+            needsOuterwear = true;
+        } else {
+            suitableSeasons = [Season.Winter];
+            needsOuterwear = true;
+        }
 
-    if (temp > 25) targetSeason = Season.Summer;
-    else if (temp > 15) targetSeason = Season.Spring;
-    else if (temp > 5) targetSeason = Season.Fall;
-    else targetSeason = Season.Winter;
+        // Helpers
+        const getPool = (cats: Category[], seasons: Season[]) => {
+            return allItems.filter(i => 
+                cats.includes(i.category) && 
+                (i.seasons.some(s => seasons.includes(s)) || i.seasons.includes(Season.All))
+            );
+        };
 
-    const suitable = allItems.filter(item => 
-      item.seasons.includes(targetSeason) || item.seasons.includes(Season.All)
-    );
+        const pick = (arr: ClothingItem[]) => {
+            if (arr.length === 0) return null;
+            
+            // Prioritize Favorites: 40% chance to force pick a favorite if available
+            const favs = arr.filter(i => i.isFavorite);
+            if (favs.length > 0 && Math.random() < 0.4) {
+                 const idx = Math.floor(Math.random() * favs.length);
+                 return favs[idx];
+            }
 
-    const generateOutfit = (attempt: number) => {
-        // Simple shuffle for variety
-        const shuffled = [...suitable].sort(() => Math.random() - 0.5);
-
-        const tops = shuffled.filter(i => i.category === Category.Top);
-        const bottoms = shuffled.filter(i => i.category === Category.Bottom);
-        const fullBody = shuffled.filter(i => i.category === Category.FullBody);
-        const outerwear = shuffled.filter(i => i.category === Category.Outerwear);
-        const shoes = shuffled.filter(i => i.category === Category.Shoes);
+            // Standard weighted random using seed
+            const idx = Math.floor((seed * 17 + Math.random() * 100)) % arr.length;
+            return arr[idx];
+        };
 
         const outfit: ClothingItem[] = [];
 
-        // 50/50 chance to prefer full body if available, or force variety based on attempt
-        const useFullBody = fullBody.length > 0 && (Math.random() > 0.5 || (attempt === 2 && tops.length === 0));
+        // 1. Core Outfit (Dress vs Top+Bottom)
+        // Prefer dress in summer/spring if available
+        const dresses = getPool([Category.Dress, Category.FullBody, Category.Pajamas], suitableSeasons);
+        const tops = getPool([Category.Top], suitableSeasons);
+        const bottoms = getPool([Category.Bottom, Category.Skirt], suitableSeasons);
 
-        if (useFullBody) {
-             outfit.push(fullBody[0]);
-        } else if (tops.length > 0 && bottoms.length > 0) {
-             outfit.push(tops[0]);
-             outfit.push(bottoms[0]);
-        } else if (fullBody.length > 0) {
-             outfit.push(fullBody[0]);
-        }
-
-        // Add outerwear if cold
-        if (temp < 18 && outerwear.length > 0) {
-             outfit.push(outerwear[0]);
-        }
+        // Decision: 30% chance for dress if warm, less if cold (unless fullbody winter suit)
+        const canWearDress = dresses.length > 0;
+        const canWearTwoPiece = tops.length > 0 && bottoms.length > 0;
         
-        // Add shoes occasionally or logic
-        if (shoes.length > 0) {
-            outfit.push(shoes[0]);
+        let chooseDress = false;
+        if (canWearDress && canWearTwoPiece) {
+             // If we have a favorite dress, increase chance to pick dress
+             const hasFavDress = dresses.some(d => d.isFavorite);
+             const hasFavTwoPiece = tops.some(t => t.isFavorite) || bottoms.some(b => b.isFavorite);
+             
+             let dressChance = 0.3;
+             if (hasFavDress && !hasFavTwoPiece) dressChance = 0.6;
+             
+             chooseDress = Math.random() < dressChance; 
+        } else if (canWearDress) {
+             chooseDress = true;
+        }
+
+        if (chooseDress) {
+            const dress = pick(dresses);
+            if (dress) outfit.push(dress);
+        } else {
+            const top = pick(tops);
+            const bottom = pick(bottoms);
+            if (top) outfit.push(top);
+            if (bottom) outfit.push(bottom);
+        }
+
+        // 2. Outerwear
+        if (needsOuterwear || (preferLayers && Math.random() > 0.5)) {
+            // Loosen season restriction for outerwear slightly if exact season missing
+            let outers = getPool([Category.Outerwear], suitableSeasons);
+            if (outers.length === 0 && needsOuterwear) {
+                 // Fallback to any outerwear if strictly needed
+                 outers = allItems.filter(i => i.category === Category.Outerwear);
+            }
+            const outer = pick(outers);
+            if (outer) outfit.push(outer);
+        }
+
+        // 3. Shoes
+        const shoes = getPool([Category.Shoes], suitableSeasons);
+        const shoe = pick(shoes);
+        if (shoe) outfit.push(shoe);
+
+        // 4. Accessories
+        if (Math.random() > 0.6) {
+             // Include Socks as potential accessories
+             const accs = getPool([Category.Accessory, Category.Sock], suitableSeasons);
+             const acc = pick(accs);
+             if (acc) outfit.push(acc);
         }
 
         return outfit;
     };
 
-    setSuggestion1(generateOutfit(1));
-    // Generate a second one, hopefully different due to random shuffle
-    setSuggestion2(generateOutfit(2));
+    setSuggestion1(generateSmartOutfit(Math.random()));
+    setTimeout(() => setSuggestion2(generateSmartOutfit(Math.random())), 50);
     
-  }, [allItems]);
+  }, [allItems, weather]);
 
   const activeSuggestion = activeOption === 1 ? suggestion1 : suggestion2;
 
   // Identify outgrown items
   const outgrownItems = allItems?.filter(item => {
-    if (!currentKid?.birthDate) return false;
-    // Skip if sizeLabel is missing
-    if (!item.sizeLabel) return false;
-    
+    if (!currentKid?.birthDate || !item.sizeLabel) return false;
     const currentAgeMonths = getAgeInMonths(currentKid.birthDate);
     const maxMonths = parseSizeToMaxMonths(item.sizeLabel);
-    
-    // If we successfully parsed a size, and current age is > size + buffer (e.g. 1 month grace)
-    if (maxMonths !== null && currentAgeMonths > maxMonths + 1) {
-        return true;
-    }
-    return false;
+    return maxMonths !== null && currentAgeMonths > maxMonths + 1;
   }) || [];
 
   const handleArchiveOutgrown = async () => {
       if (outgrownItems.length === 0) return;
-      
       const ids = outgrownItems.map(i => i.id).filter(id => id !== undefined) as number[];
       if (ids.length > 0) {
           await db.items.bulkUpdate(ids.map(id => ({ key: id, changes: { isArchived: true } })));
@@ -181,8 +310,16 @@ export const Dashboard: React.FC = () => {
   const handleToggleArchive = async (item: ClothingItem) => {
       if (item.id) {
           await db.items.update(item.id, { isArchived: !item.isArchived });
-          setSelectedItem(null); // Close modal after archive action
+          setSelectedItem(null);
       }
+  };
+
+  const regenerate = () => {
+      // Force re-run of effect by toggling a dummy state or just calling logic?
+      // Easiest is to just manually set random data again, but logic is inside useEffect.
+      // Let's just flip active option for "new look" feel or implement a refresh signal.
+      // For now, simpler to just rely on the 2 options.
+      setActiveOption(prev => prev === 1 ? 2 : 1);
   };
 
   return (
@@ -211,27 +348,29 @@ export const Dashboard: React.FC = () => {
         </div>
       </header>
 
-      <WeatherWidget data={MOCK_WEATHER} />
+      <div className="relative">
+        {locationEnabled && (
+            <div className="absolute top-4 right-4 z-10 text-slate-800/30">
+                <MapPin size={16} />
+            </div>
+        )}
+        <WeatherWidget data={weather} />
+      </div>
 
       <section className="mb-10">
         <div className="flex justify-between items-center mb-4 px-1">
-          <div className="flex items-center gap-4">
-              <h2 className="text-lg text-slate-800 font-serif font-bold">Today's Outfit</h2>
-              <div className="flex bg-white rounded-full p-1 shadow-sm border border-slate-100">
-                  <button 
-                    onClick={() => setActiveOption(1)}
-                    className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${activeOption === 1 ? 'bg-sky-400 text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
-                  >
-                      Option 1
-                  </button>
-                  <button 
-                    onClick={() => setActiveOption(2)}
-                    className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${activeOption === 2 ? 'bg-sky-400 text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
-                  >
-                      Option 2
-                  </button>
-              </div>
+          <div className="flex items-center gap-2">
+              <Sparkles className="text-orange-400" size={20} />
+              <h2 className="text-xl text-slate-800 font-serif font-bold">Today's Look</h2>
           </div>
+          
+          <button 
+            onClick={regenerate}
+            className="flex items-center gap-2 px-3 py-1.5 bg-white rounded-full text-xs font-bold text-slate-500 shadow-sm border border-slate-100 hover:bg-slate-50 transition-colors"
+          >
+              <RefreshCw size={12} className={clsx("transition-transform", activeOption === 1 ? "rotate-0" : "rotate-180")} />
+              Shuffle
+          </button>
         </div>
         
         {(!allItems || allItems.length === 0) ? (
@@ -245,26 +384,18 @@ export const Dashboard: React.FC = () => {
             </Link>
           </div>
         ) : activeSuggestion.length > 0 ? (
-          <div className="grid grid-cols-2 gap-4 animate-in fade-in slide-in-from-bottom-2 duration-300" key={activeOption}>
-            {activeSuggestion.map((item, i) => (
-              <div 
-                key={`${item.id}-${i}`} 
-                onClick={() => setSelectedItem(item)}
-                className="group relative bg-white rounded-[2rem] p-3 shadow-sm border border-slate-50 cursor-pointer transition-transform active:scale-95 h-full flex flex-col"
-              >
-                 <div className="w-full aspect-[3/4] overflow-hidden rounded-[1.5rem] bg-orange-50 relative mb-3">
-                   <img src={item.image} alt={item.description} className="w-full h-full object-cover" />
-                 </div>
-                 <div className="px-1 flex-1">
-                    <h3 className="font-bold text-slate-800 leading-tight mb-1 font-serif">{item.category}</h3>
-                    <p className="text-xs text-slate-500 font-bold uppercase">{item.brand}</p>
-                 </div>
-              </div>
-            ))}
-          </div>
+           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500" key={activeOption}>
+               <OutfitCollage items={activeSuggestion} onClickItem={setSelectedItem} />
+           </div>
         ) : (
-          <div className="p-6 rounded-[2rem] bg-orange-100 text-orange-800 font-medium text-center">
-            No matching items for this weather!
+          <div className="p-8 rounded-[2.5rem] bg-orange-50 border border-orange-100 text-orange-800 font-medium text-center flex flex-col items-center gap-4">
+            <div className="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center">
+                <AlertCircle size={24} />
+            </div>
+            <div>
+                No items match this weather! <br/> 
+                <span className="text-xs opacity-70">Add some {weather.temp > 20 ? 'Summer' : 'Winter'} clothes.</span>
+            </div>
           </div>
         )}
       </section>
@@ -329,7 +460,7 @@ export const Dashboard: React.FC = () => {
           {allItems?.slice().reverse().slice(0, 5).map(item => (
             <div key={item.id} className="w-24 shrink-0 cursor-pointer transition-transform active:scale-95" onClick={() => setSelectedItem(item)}>
                  <div className="aspect-square rounded-[1.5rem] overflow-hidden bg-white border border-slate-100 shadow-sm mb-2">
-                    <img src={item.image} alt={item.description} className="w-full h-full object-cover" />
+                    <img src={item.image} alt={item.category} className="w-full h-full object-cover" />
                  </div>
             </div>
           ))}

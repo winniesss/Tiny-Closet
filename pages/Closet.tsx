@@ -2,17 +2,18 @@ import React, { useState, useRef } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
 import { Category, Season, ClothingItem } from '../types';
-import { Search, Archive, CheckCircle2 } from 'lucide-react';
+import { Search, Archive, CheckCircle2, Trash2, RotateCcw, Heart } from 'lucide-react';
 import { ItemDetailModal } from '../components/ItemDetailModal';
 import clsx from 'clsx';
 
 export const Closet: React.FC = () => {
-  const [filterCategory, setFilterCategory] = useState<Category | 'All' | 'Archived'>('All');
+  const [filterCategory, setFilterCategory] = useState<Category | 'All' | 'Archived' | 'Favorites'>('All');
   const [filterSeason, setFilterSeason] = useState<Season | 'All'>('All');
   const [search, setSearch] = useState('');
   
   // Interaction State
   const [selectedItem, setSelectedItem] = useState<ClothingItem | null>(null);
+  const [actionItem, setActionItem] = useState<ClothingItem | null>(null);
   const [notification, setNotification] = useState<string | null>(null);
 
   const items = useLiveQuery(() => {
@@ -28,7 +29,9 @@ export const Closet: React.FC = () => {
         if (item.isArchived) return false;
         
         // Category Filter
-        if (filterCategory !== 'All' && item.category !== filterCategory) {
+        if (filterCategory === 'Favorites') {
+            if (!item.isFavorite) return false;
+        } else if (filterCategory !== 'All' && item.category !== filterCategory) {
             return false;
         }
     }
@@ -64,6 +67,8 @@ export const Closet: React.FC = () => {
           await db.items.update(item.id, { isArchived: newState });
           showNotification(newState ? "Archived" : "Restored");
           
+          if (actionItem?.id === item.id) setActionItem(null);
+
           // If we archived it while looking at the active list, close the modal
           if (newState && filterCategory !== 'Archived' && selectedItem?.id === item.id) {
               setSelectedItem(null);
@@ -72,6 +77,24 @@ export const Closet: React.FC = () => {
           if (!newState && filterCategory === 'Archived' && selectedItem?.id === item.id) {
               setSelectedItem(null);
           }
+      }
+  };
+
+  const handleToggleFavorite = async (item: ClothingItem) => {
+    if (item.id) {
+        const newState = !item.isFavorite;
+        await db.items.update(item.id, { isFavorite: newState });
+        // showNotification(newState ? "Added to Favorites" : "Removed from Favorites");
+        if (actionItem?.id === item.id) setActionItem(null);
+    }
+  };
+
+  const handleDelete = async (item: ClothingItem) => {
+      if (item.id && window.confirm("Are you sure you want to delete this item permanently?")) {
+          await db.items.delete(item.id);
+          showNotification("Item deleted");
+          setActionItem(null);
+          if (selectedItem?.id === item.id) setSelectedItem(null);
       }
   };
 
@@ -87,7 +110,7 @@ export const Closet: React.FC = () => {
               isLongPress.current = true;
               // Haptic feedback if available
               if (navigator.vibrate) navigator.vibrate(50);
-              handleToggleArchive(item);
+              setActionItem(item);
           }, longPressDuration);
       };
 
@@ -127,6 +150,11 @@ export const Closet: React.FC = () => {
                 {filterCategory === 'Archived' && (
                     <div className="absolute inset-0 bg-slate-900/10 flex items-center justify-center">
                          <div className="bg-white/80 backdrop-blur px-3 py-1 rounded-full text-[10px] font-bold shadow-sm">Archived</div>
+                    </div>
+                )}
+                {item.isFavorite && filterCategory !== 'Archived' && (
+                    <div className="absolute top-2 right-2 bg-white/80 backdrop-blur p-1.5 rounded-full shadow-sm text-red-500">
+                        <Heart size={12} fill="currentColor" />
                     </div>
                 )}
             </div>
@@ -175,6 +203,17 @@ export const Closet: React.FC = () => {
                 )}
             >
                 All
+            </button>
+            <button
+                onClick={() => setFilterCategory('Favorites')}
+                className={clsx(
+                    "whitespace-nowrap px-5 py-2.5 rounded-full text-sm font-bold transition-all shadow-sm border border-transparent flex items-center gap-2",
+                    filterCategory === 'Favorites'
+                        ? "bg-red-400 text-white shadow-md" 
+                        : "bg-white text-slate-500 hover:bg-slate-50"
+                )}
+            >
+                <Heart size={14} fill={filterCategory === 'Favorites' ? "currentColor" : "none"} /> Favorites
             </button>
             {Object.values(Category).map(cat => (
                 <button
@@ -257,6 +296,53 @@ export const Closet: React.FC = () => {
             </div>
         )}
       </div>
+
+      {/* Action Menu Modal */}
+      {actionItem && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200" onClick={() => setActionItem(null)}>
+            <div className="bg-white w-full max-w-xs rounded-[2rem] p-5 shadow-2xl animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+                <div className="text-center mb-6">
+                    <div className="w-16 h-16 mx-auto bg-slate-50 rounded-2xl mb-3 overflow-hidden">
+                        <img src={actionItem.image} className="w-full h-full object-cover" alt="Selected" />
+                    </div>
+                    <h3 className="font-bold text-slate-800 text-lg">Manage Item</h3>
+                    <p className="text-xs text-slate-400">{actionItem.brand} - {actionItem.category}</p>
+                </div>
+                
+                <div className="space-y-3">
+                    <button 
+                    onClick={() => handleToggleFavorite(actionItem)}
+                    className={clsx(
+                        "w-full py-4 rounded-xl font-bold flex items-center justify-center gap-2 transition-colors",
+                        actionItem.isFavorite ? "bg-red-50 text-red-500 hover:bg-red-100" : "bg-slate-50 text-slate-600 hover:bg-slate-100"
+                    )}
+                    >
+                        <Heart size={20} fill={actionItem.isFavorite ? "currentColor" : "none"} /> 
+                        {actionItem.isFavorite ? "Remove from Favorites" : "Add to Favorites"}
+                    </button>
+                    <button 
+                    onClick={() => handleToggleArchive(actionItem)}
+                    className="w-full py-4 rounded-xl bg-sky-50 text-sky-600 font-bold flex items-center justify-center gap-2 hover:bg-sky-100 transition-colors"
+                    >
+                        {actionItem.isArchived ? <><RotateCcw size={20} /> Restore Item</> : <><Archive size={20} /> Archive Item</>}
+                    </button>
+                    <button 
+                    onClick={() => handleDelete(actionItem)}
+                    className="w-full py-4 rounded-xl bg-red-50 text-red-500 font-bold flex items-center justify-center gap-2 hover:bg-red-100 transition-colors"
+                    >
+                        <Trash2 size={20} /> Delete Permanently
+                    </button>
+                </div>
+                
+                <button 
+                onClick={() => setActionItem(null)}
+                className="w-full mt-4 py-3 rounded-xl text-slate-400 font-bold text-sm"
+                >
+                    Cancel
+                </button>
+            </div>
+        </div>
+      )}
 
       {/* Notification Toast */}
       {notification && (

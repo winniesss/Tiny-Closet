@@ -10,9 +10,15 @@ export enum Category {
   Top = 'Top',
   Bottom = 'Bottom',
   FullBody = 'Full Body',
+  Dress = 'Dress',
+  Skirt = 'Skirt',
+  Pajamas = 'Pajamas',
+  Swimwear = 'Swimwear',
   Shoes = 'Shoes',
   Outerwear = 'Outerwear',
-  Accessory = 'Accessory'
+  Accessory = 'Accessory',
+  Underwear = 'Underwear',
+  Sock = 'Sock'
 }
 
 export interface ClothingItem {
@@ -26,6 +32,7 @@ export interface ClothingItem {
   description?: string;
   dateAdded: number;
   isArchived?: boolean;
+  isFavorite?: boolean;
 }
 
 export interface ChildProfile {

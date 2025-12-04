@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Archive, RotateCcw, Pencil, Trash2, Check, Save, Camera } from 'lucide-react';
+import { X, Archive, RotateCcw, Pencil, Trash2, Check, Save, Camera, Heart } from 'lucide-react';
 import { ClothingItem, Category, Season } from '../types';
 import { db } from '../db';
 import clsx from 'clsx';
@@ -28,6 +28,16 @@ export const ItemDetailModal: React.FC<Props> = ({ item, onClose, onToggleArchiv
       if (item.id) {
           await db.items.update(item.id, formData);
           setIsEditing(false);
+      }
+  };
+
+  const toggleFavorite = async () => {
+      if (item.id) {
+          const newStatus = !formData.isFavorite;
+          // Update local state immediately for UI response
+          setFormData(prev => ({ ...prev, isFavorite: newStatus }));
+          // Update DB
+          await db.items.update(item.id, { isFavorite: newStatus });
       }
   };
 
@@ -69,7 +79,7 @@ export const ItemDetailModal: React.FC<Props> = ({ item, onClose, onToggleArchiv
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
       <div className="bg-white rounded-[2.5rem] w-full max-w-md overflow-hidden shadow-2xl relative flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-300">
         
-        {/* Image Header - Reduced height and used object-contain */}
+        {/* Image Header */}
         <div className="relative w-full h-72 bg-orange-50 shrink-0 group">
             <img src={formData.image || item.image} className="w-full h-full object-contain p-4" alt="Detail" />
             
@@ -81,12 +91,26 @@ export const ItemDetailModal: React.FC<Props> = ({ item, onClose, onToggleArchiv
             </button>
 
             {!isEditing && (
-                 <button 
-                    onClick={() => setIsEditing(true)}
-                    className="absolute top-4 left-4 p-3 bg-white/50 backdrop-blur-md rounded-full text-slate-800 hover:bg-white transition-colors shadow-sm z-10"
-                >
-                    <Pencil size={20} />
-                </button>
+                <>
+                    <button 
+                        onClick={() => setIsEditing(true)}
+                        className="absolute top-4 left-4 p-3 bg-white/50 backdrop-blur-md rounded-full text-slate-800 hover:bg-white transition-colors shadow-sm z-10"
+                    >
+                        <Pencil size={20} />
+                    </button>
+                    
+                    <button 
+                        onClick={toggleFavorite}
+                        className={clsx(
+                            "absolute bottom-4 right-4 p-3 rounded-full shadow-sm z-10 transition-all active:scale-95",
+                            formData.isFavorite 
+                                ? "bg-red-500 text-white" 
+                                : "bg-white/50 backdrop-blur-md text-slate-400 hover:text-red-500 hover:bg-white"
+                        )}
+                    >
+                        <Heart size={24} fill={formData.isFavorite ? "currentColor" : "none"} />
+                    </button>
+                </>
             )}
 
             {isEditing && (

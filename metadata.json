@@ -2,6 +2,7 @@
   "name": "Tiny Closet",
   "description": "AI-powered wardrobe manager for parents to track kids' clothes, sizes, and daily outfits.",
   "requestFramePermissions": [
-    "camera"
+    "camera",
+    "geolocation"
   ]
 }

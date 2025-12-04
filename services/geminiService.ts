@@ -14,10 +14,16 @@ const itemSchema: Schema = {
       enum: [
         Category.Top, 
         Category.Bottom, 
-        Category.FullBody, 
+        Category.FullBody,
+        Category.Dress,
+        Category.Skirt,
+        Category.Pajamas,
+        Category.Swimwear,
         Category.Shoes, 
         Category.Outerwear, 
-        Category.Accessory
+        Category.Accessory,
+        Category.Underwear,
+        Category.Sock
       ],
       description: "Category of the item."
     },
