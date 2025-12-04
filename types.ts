@@ -10,15 +10,9 @@ export enum Category {
   Top = 'Top',
   Bottom = 'Bottom',
   FullBody = 'Full Body',
-  Dress = 'Dress',
-  Skirt = 'Skirt',
-  Pajamas = 'Pajamas',
-  Swimwear = 'Swimwear',
   Shoes = 'Shoes',
   Outerwear = 'Outerwear',
-  Accessory = 'Accessory',
-  Underwear = 'Underwear',
-  Sock = 'Sock'
+  Accessory = 'Accessory'
 }
 
 export interface ClothingItem {
@@ -32,8 +26,13 @@ export interface ClothingItem {
   description?: string;
   dateAdded: number;
   isArchived?: boolean;
-  isFavorite?: boolean;
-  ignoreOutgrown?: boolean;
+}
+
+export interface OutfitLike {
+  id?: number;
+  itemIds: number[]; // IDs of items in the outfit
+  style: 'playful' | 'chic';
+  date: number;
 }
 
 export interface ChildProfile {
@@ -41,9 +40,6 @@ export interface ChildProfile {
   name: string;
   birthDate: string;
   avatar?: string; // Base64 image string
-  height?: number; // in cm
-  weight?: number; // in kg
-  unitSystem?: 'metric' | 'imperial';
 }
 
 export interface WeatherData {

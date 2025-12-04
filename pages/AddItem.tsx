@@ -210,14 +210,6 @@ export const AddItem: React.FC = () => {
     setReviewItems(updatedItems);
   };
 
-  const handleFocus = (field: keyof ClothingItem) => {
-    const val = reviewItems[currentIndex][field];
-    // Check if the value is specifically "Unknown" (case-insensitive) and clear it if so
-    if (typeof val === 'string' && val.toLowerCase() === 'unknown') {
-      handleUpdateCurrentItem(field, '');
-    }
-  };
-
   const toggleSeason = (s: Season) => {
     const currentSeasons = reviewItems[currentIndex].seasons || [];
     const newSeasons = currentSeasons.includes(s)
@@ -753,7 +745,6 @@ export const AddItem: React.FC = () => {
                     type="text" 
                     value={currentItem.brand || ''} 
                     onChange={e => handleUpdateCurrentItem('brand', e.target.value)}
-                    onFocus={() => handleFocus('brand')}
                     className="w-full px-5 py-4 bg-slate-50 rounded-2xl text-slate-800 font-bold focus:outline-none focus:ring-2 focus:ring-sky-200 transition-all placeholder:text-slate-300"
                     placeholder="e.g. Zara"
                 />
@@ -765,7 +756,6 @@ export const AddItem: React.FC = () => {
                 type="text" 
                 value={currentItem.description || ''} 
                 onChange={e => handleUpdateCurrentItem('description', e.target.value)}
-                onFocus={() => handleFocus('description')}
                 className="w-full px-5 py-4 bg-slate-50 rounded-2xl text-slate-800 font-medium focus:outline-none focus:ring-2 focus:ring-sky-200 transition-all placeholder:text-slate-300"
                 placeholder="Blue T-Shirt"
                 />
@@ -778,7 +768,6 @@ export const AddItem: React.FC = () => {
                     type="text" 
                     value={currentItem.sizeLabel || ''} 
                     onChange={e => handleUpdateCurrentItem('sizeLabel', e.target.value)}
-                    onFocus={() => handleFocus('sizeLabel')}
                     className="w-full px-5 py-4 bg-slate-50 rounded-2xl text-slate-800 font-bold focus:outline-none focus:ring-2 focus:ring-sky-200 transition-all placeholder:text-slate-300"
                     placeholder="4T"
                     />
@@ -789,7 +778,6 @@ export const AddItem: React.FC = () => {
                     type="text" 
                     value={currentItem.color || ''} 
                     onChange={e => handleUpdateCurrentItem('color', e.target.value)}
-                    onFocus={() => handleFocus('color')}
                     className="w-full px-5 py-4 bg-slate-50 rounded-2xl text-slate-800 font-bold focus:outline-none focus:ring-2 focus:ring-sky-200 transition-all placeholder:text-slate-300"
                     placeholder="Blue"
                     />
