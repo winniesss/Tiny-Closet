@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Camera, Loader2, X, ChevronLeft, ChevronRight, Trash2, Sparkles, AlertTriangle, FileText, Crop as CropIcon, RotateCw } from 'lucide-react';
+import { Camera, Loader2, X, ChevronLeft, ChevronRight, Trash2, Sparkles, AlertTriangle, FileText, Crop as CropIcon, RotateCw, Check } from 'lucide-react';
 import { analyzeClothingImage } from '../services/geminiService';
 import { db } from '../db';
 import { ClothingItem, Category, Season } from '../types';
@@ -32,7 +32,7 @@ export const AddItem: React.FC = () => {
     startImg?: { x: number, y: number, scale: number };
     startTouches?: { x: number, y: number }[];
     startDist?: number;
-    activeHandle?: string; // 'tl', 'tr', 'bl', 'br'
+    activeHandle?: string; // 'tl', 'tr', 'bl', 'br', 't', 'b', 'l', 'r'
   } | null>(null);
   
   // Recrop State
@@ -100,21 +100,21 @@ export const AddItem: React.FC = () => {
     const target = e.target as HTMLElement;
     const handle = target.dataset.handle; // Check if touching a resize handle
 
-    if (handle && touches.length === 1) {
+    if (touches.length === 2) {
+        // PINCH/ZOOM MODE - Prioritize this even if on a handle
+        const dist = getDistance(touches[0], touches[1]);
+        activeGesture.current = {
+            type: 'pinch',
+            startDist: dist,
+            startImg: { ...imgState }
+        };
+    } else if (touches.length === 1 && handle) {
         // RESIZE MODE
         activeGesture.current = {
             type: 'resize',
             activeHandle: handle,
             startMask: { ...maskDims },
             startTouches: [{ x: touches[0].clientX, y: touches[0].clientY }]
-        };
-    } else if (touches.length === 2) {
-        // PINCH/ZOOM MODE
-        const dist = getDistance(touches[0], touches[1]);
-        activeGesture.current = {
-            type: 'pinch',
-            startDist: dist,
-            startImg: { ...imgState }
         };
     } else if (touches.length === 1) {
         // PAN MODE
@@ -142,17 +142,20 @@ export const AddItem: React.FC = () => {
         let newH = g.startMask!.h;
 
         // Symmetric resizing logic based on handle
-        if (g.activeHandle?.includes('l')) newW -= dx * 2; // Pulling left expands both sides (centered)
-        if (g.activeHandle?.includes('r')) newW += dx * 2;
-        if (g.activeHandle?.includes('t')) newH -= dy * 2;
-        if (g.activeHandle?.includes('b')) newH += dy * 2;
+        // Using "includes" allows 'tl', 'tr' to respond to both side and top pulls
+        // Also supports explicit edge handles 't', 'b', 'l', 'r'
+        if (g.activeHandle === 'l' || g.activeHandle?.includes('l')) newW -= dx * 2; 
+        if (g.activeHandle === 'r' || g.activeHandle?.includes('r')) newW += dx * 2;
+        if (g.activeHandle === 't' || g.activeHandle?.includes('t')) newH -= dy * 2;
+        if (g.activeHandle === 'b' || g.activeHandle?.includes('b')) newH += dy * 2;
 
         // Min dimensions
-        newW = Math.max(50, newW);
-        newH = Math.max(50, newH);
+        newW = Math.max(80, newW);
+        newH = Math.max(80, newH);
         
-        // Constrain to screen width
+        // Constrain to screen width/height slightly
         if (newW > window.innerWidth - 32) newW = window.innerWidth - 32;
+        if (newH > window.innerHeight - 200) newH = window.innerHeight - 200;
 
         setMaskDims({ w: newW, h: newH });
     }
@@ -212,7 +215,6 @@ export const AddItem: React.FC = () => {
     ctx.scale(imgState.scale, imgState.scale);
     
     // Draw image centered at origin
-    // Note: We use natural dimensions because imgState.scale is calculated relative to natural size in our initCrop
     ctx.drawImage(
         img, 
         -img.naturalWidth / 2, 
@@ -426,7 +428,7 @@ export const AddItem: React.FC = () => {
 
   if (step === 'crop') {
       return (
-          <div className="fixed inset-0 z-50 flex flex-col bg-black overflow-hidden touch-none select-none">
+          <div className="fixed inset-0 z-[60] flex flex-col bg-black overflow-hidden touch-none select-none">
               {/* Main Crop Area */}
               <div 
                 ref={containerRef}
@@ -435,48 +437,8 @@ export const AddItem: React.FC = () => {
                 onTouchMove={handleTouchMove}
                 onTouchEnd={handleTouchEnd}
               >
-                  {/* Background Overlay (Darkened) */}
-                  <div className="absolute inset-0 bg-black/70 pointer-events-none z-10"></div>
-                  
-                  {/* Visible Crop Window (Cutout) */}
-                  <div 
-                    className="absolute z-20 pointer-events-none border border-white/50 shadow-[0_0_0_9999px_rgba(0,0,0,0.7)]"
-                    style={{ 
-                        width: maskDims.w, 
-                        height: maskDims.h,
-                        // Centered simply by flex parent, but we simulate 'cutout' via shadow or z-index stacking if needed.
-                        // Actually, easiest way is shadow box trick on this div.
-                    }}
-                  >
-                       {/* Grid Lines */}
-                       <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 opacity-20 pointer-events-none">
-                          <div className="border-r border-b border-white"></div>
-                          <div className="border-r border-b border-white"></div>
-                          <div className="border-b border-white"></div>
-                          <div className="border-r border-b border-white"></div>
-                          <div className="border-r border-b border-white"></div>
-                          <div className="border-b border-white"></div>
-                          <div className="border-r border-white"></div>
-                          <div className="border-r border-white"></div>
-                       </div>
-
-                       {/* Interactive Corner Handles */}
-                       <div data-handle="tl" className="absolute -top-3 -left-3 w-8 h-8 bg-transparent z-30 flex items-end justify-end pointer-events-auto">
-                            <div className="w-4 h-4 border-t-4 border-l-4 border-white pointer-events-none"></div>
-                       </div>
-                       <div data-handle="tr" className="absolute -top-3 -right-3 w-8 h-8 bg-transparent z-30 flex items-end justify-start pointer-events-auto">
-                            <div className="w-4 h-4 border-t-4 border-r-4 border-white pointer-events-none"></div>
-                       </div>
-                       <div data-handle="bl" className="absolute -bottom-3 -left-3 w-8 h-8 bg-transparent z-30 flex items-start justify-end pointer-events-auto">
-                            <div className="w-4 h-4 border-b-4 border-l-4 border-white pointer-events-none"></div>
-                       </div>
-                       <div data-handle="br" className="absolute -bottom-3 -right-3 w-8 h-8 bg-transparent z-30 flex items-start justify-start pointer-events-auto">
-                            <div className="w-4 h-4 border-b-4 border-r-4 border-white pointer-events-none"></div>
-                       </div>
-                  </div>
-
-                  {/* The Image (Behind Overlay) */}
-                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                  {/* The Image (Background Layer) - Z-0 */}
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0">
                       {originalImage && (
                         <img 
                             ref={imgRef}
@@ -489,37 +451,80 @@ export const AddItem: React.FC = () => {
                         />
                       )}
                   </div>
+
+                  {/* Visible Crop Window (Cutout) - Z-10 */}
+                  {/* Shadow creates the dark overlay outside the box */}
+                  <div 
+                    className="absolute z-10 pointer-events-none border-2 border-white shadow-[0_0_0_9999px_rgba(0,0,0,0.8)]"
+                    style={{ 
+                        width: maskDims.w, 
+                        height: maskDims.h,
+                    }}
+                  >
+                       {/* Grid Lines */}
+                       <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 opacity-30 pointer-events-none">
+                          <div className="border-r border-b border-white"></div>
+                          <div className="border-r border-b border-white"></div>
+                          <div className="border-b border-white"></div>
+                          <div className="border-r border-b border-white"></div>
+                          <div className="border-r border-b border-white"></div>
+                          <div className="border-b border-white"></div>
+                          <div className="border-r border-white"></div>
+                          <div className="border-r border-white"></div>
+                       </div>
+
+                       {/* Interactive Corners (Z-20) */}
+                       <div data-handle="tl" className="absolute -top-4 -left-4 w-10 h-10 bg-transparent z-20 flex items-end justify-end pointer-events-auto">
+                            <div className="w-5 h-5 border-t-4 border-l-4 border-white pointer-events-none"></div>
+                       </div>
+                       <div data-handle="tr" className="absolute -top-4 -right-4 w-10 h-10 bg-transparent z-20 flex items-end justify-start pointer-events-auto">
+                            <div className="w-5 h-5 border-t-4 border-r-4 border-white pointer-events-none"></div>
+                       </div>
+                       <div data-handle="bl" className="absolute -bottom-4 -left-4 w-10 h-10 bg-transparent z-20 flex items-start justify-end pointer-events-auto">
+                            <div className="w-5 h-5 border-b-4 border-l-4 border-white pointer-events-none"></div>
+                       </div>
+                       <div data-handle="br" className="absolute -bottom-4 -right-4 w-10 h-10 bg-transparent z-20 flex items-start justify-start pointer-events-auto">
+                            <div className="w-5 h-5 border-b-4 border-r-4 border-white pointer-events-none"></div>
+                       </div>
+
+                       {/* Interactive Edges (Z-20) - Invisible but draggable */}
+                       <div data-handle="t" className="absolute -top-3 left-6 right-6 h-6 z-20 pointer-events-auto"></div>
+                       <div data-handle="b" className="absolute -bottom-3 left-6 right-6 h-6 z-20 pointer-events-auto"></div>
+                       <div data-handle="l" className="absolute top-6 -left-3 bottom-6 w-6 z-20 pointer-events-auto"></div>
+                       <div data-handle="r" className="absolute top-6 -right-3 bottom-6 w-6 z-20 pointer-events-auto"></div>
+                  </div>
               </div>
 
-              {/* Bottom Control Bar */}
-              <div className="flex-none bg-zinc-900 pb-safe pt-6 px-6 pb-8 z-50">
+              {/* Bottom Control Bar - Z-50 */}
+              <div className="flex-none bg-zinc-900 pb-safe pt-6 px-6 pb-8 z-50 shadow-2xl">
                   <div className="max-w-md mx-auto">
                       <div className="flex items-center justify-center gap-6 mb-6">
-                           <span className="text-white/50 text-xs font-bold uppercase tracking-wider">
-                               Pinch to Zoom • Drag Edges to Resize
+                           <span className="text-white/60 text-xs font-bold uppercase tracking-wider bg-white/10 px-3 py-1 rounded-full">
+                               Pan, Zoom & Crop
                            </span>
                       </div>
 
-                      <div className="flex justify-between items-center">
+                      <div className="flex justify-between items-center gap-4">
                           <button 
                             onClick={() => setImgState(s => ({...s, rotate: s.rotate - 90}))}
                             className="p-3 bg-white/10 rounded-full text-white hover:bg-white/20 transition-colors"
+                            title="Rotate"
                           >
                              <RotateCw size={20} className="-scale-x-100" />
                           </button>
                           
-                          <div className="flex gap-4">
+                          <div className="flex gap-4 flex-1 justify-end">
                             <button 
                                 onClick={cancelCrop}
-                                className="text-white font-bold px-6 py-3 rounded-full hover:bg-white/10 transition-colors"
+                                className="text-white font-bold px-4 py-3 rounded-full hover:bg-white/10 transition-colors"
                             >
                                 Cancel
                             </button>
                             <button 
                                 onClick={confirmCrop}
-                                className="bg-white text-black px-8 py-3 rounded-full font-bold shadow-lg active:scale-95 transition-transform"
+                                className="bg-white text-black px-6 py-3 rounded-full font-bold shadow-lg active:scale-95 transition-transform flex items-center gap-2"
                             >
-                                Done
+                                <Check size={18} strokeWidth={3} /> Done
                             </button>
                           </div>
                       </div>
@@ -531,7 +536,7 @@ export const AddItem: React.FC = () => {
 
   if (step === 'analyzing') {
     return (
-      <div className="h-screen flex flex-col items-center justify-center bg-orange-50 p-6">
+      <div className="h-screen flex flex-col items-center justify-center bg-orange-50 p-6 z-[60] relative">
         <div className="relative w-48 h-48 mb-8 bg-white p-2 rounded-[2.5rem] shadow-lg rotate-3 overflow-hidden">
           {imagePreview && <img src={imagePreview} alt="Analyzing" className="w-full h-full object-cover rounded-[2rem] opacity-50" />}
           <div className="absolute inset-0 flex items-center justify-center">
