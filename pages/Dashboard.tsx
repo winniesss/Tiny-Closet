@@ -4,7 +4,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
 import { WeatherWidget } from '../components/WeatherWidget';
 import { WeatherData, ClothingItem, Season, Category } from '../types';
-import { Shirt, AlertCircle, Cake, Archive, CheckCircle2, MapPin, Sparkles, Smile, Heart, RotateCcw, TrendingUp } from 'lucide-react';
+import { Shirt, AlertCircle, Cake, Archive, CheckCircle2, Sparkles, Smile, Heart, RotateCcw, TrendingUp } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Logo } from '../components/Logo';
 import { ItemDetailModal } from '../components/ItemDetailModal';
@@ -234,17 +234,30 @@ export const Dashboard: React.FC = () => {
         }
     });
 
+    // Determine Top Brands (e.g. top 3 by count)
+    const topBrands = Object.entries(brandCounts)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 3)
+        .map(([name]) => name);
+
     // Weighted Random Picker
-    // items from popular brands in your closet have a higher chance of being the "Anchor" piece.
+    // Items from brands you own a lot of have a significantly higher chance of being the "Anchor".
     const pickWeightedAnchor = (items: ClothingItem[]): ClothingItem | null => {
         if (items.length === 0) return null;
         
-        // Flatten list based on weight (brands you own more of appear more in the lottery)
         const weightedPool: ClothingItem[] = [];
         items.forEach(item => {
-            const weight = (brandCounts[item.brand] || 0) + 1;
-            // Add item to pool 'weight' times (capped at 5 to prevent total domination)
-            const cap = Math.min(weight, 5); 
+            const brand = item.brand;
+            let weight = (brandCounts[brand] || 0) + 1;
+            
+            // HEAVY BOOST: If this is a top brand, double down on it.
+            // This ensures "inspiration from brands user likes most".
+            if (topBrands.includes(brand)) {
+                weight += 8; 
+            }
+
+            // Cap to prevent total domination, but allow popular brands to shine
+            const cap = Math.min(weight, 15); 
             for(let k=0; k<cap; k++) weightedPool.push(item);
         });
         
@@ -262,6 +275,17 @@ export const Dashboard: React.FC = () => {
         if (anchor.brand !== 'Unknown' && anchor.brand === candidate.brand) {
             score += 10; // Huge bonus for potential matching sets
             if (isTonal(c1, c2)) score += 5; // Same brand + same color = Definite Set
+        }
+
+        // --- RULE 1.5: Brand Affinity Bonus ---
+        // If the candidate is from a Top Brand (even if different from anchor),
+        // we assume it fits the user's general aesthetic preference.
+        if (candidate.brand && topBrands.includes(candidate.brand)) {
+            score += 3;
+        }
+        // Cross-Favorite Pairing: Anchor Top Brand + Candidate Top Brand = High Taste Match
+        if (anchor.brand && topBrands.includes(anchor.brand) && candidate.brand && topBrands.includes(candidate.brand)) {
+            score += 4;
         }
 
         // --- RULE 2: Color Theory ---
@@ -497,7 +521,7 @@ export const Dashboard: React.FC = () => {
 
   return (
     <div className="p-6 pb-28 max-w-md mx-auto">
-      <header className="mb-8 pt-4 flex justify-between items-end">
+      <header className="mb-4 pt-6 flex justify-between items-end">
         <div>
             <Logo />
             <div className="flex items-center gap-2 mt-2 ml-1">
@@ -521,14 +545,7 @@ export const Dashboard: React.FC = () => {
         </div>
       </header>
 
-      <div className="relative">
-        {locationEnabled && (
-            <div className="absolute top-4 right-4 z-10 text-slate-800/30">
-                <MapPin size={16} />
-            </div>
-        )}
-        <WeatherWidget data={weather} />
-      </div>
+      <WeatherWidget data={weather} locationEnabled={locationEnabled} />
 
       <section className="mb-10 relative">
         <div className="flex justify-between items-center mb-5 px-1 pt-2">

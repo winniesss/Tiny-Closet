@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Camera, Loader2, X, ChevronLeft, ChevronRight, Trash2, Sparkles, AlertTriangle, FileText, Crop as CropIcon, RotateCw, Check } from 'lucide-react';
+import { Camera, Loader2, X, ChevronLeft, ChevronRight, Trash2, Sparkles, AlertTriangle, FileText, Crop as CropIcon, RotateCw, Check, RefreshCw } from 'lucide-react';
 import { analyzeClothingImage } from '../services/geminiService';
 import { db } from '../db';
 import { ClothingItem, Category, Season } from '../types';
@@ -18,6 +18,7 @@ export const AddItem: React.FC = () => {
   // Image States
   const [originalImage, setOriginalImage] = useState<string | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [lastAnalysisImage, setLastAnalysisImage] = useState<string | null>(null);
   
   // --- NEW CROP STATE ---
   const [maskDims, setMaskDims] = useState({ w: 0, h: 0 }); // The size of the crop window
@@ -50,6 +51,7 @@ export const AddItem: React.FC = () => {
     reader.onloadend = async () => {
       const base64 = reader.result as string;
       setOriginalImage(base64);
+      setLastAnalysisImage(null);
       setStep('preview');
       setRecropIndex(null);
       if (e.target) e.target.value = '';
@@ -248,6 +250,7 @@ export const AddItem: React.FC = () => {
   // --- ANALYSIS LOGIC ---
 
   const startAnalysis = async (base64: string) => {
+      setLastAnalysisImage(base64);
       setImagePreview(base64);
       setStep('analyzing');
       setAnalysisError(null);
@@ -608,6 +611,14 @@ export const AddItem: React.FC = () => {
                      title="Re-crop Item"
                 >
                      <CropIcon size={20} />
+                </button>
+
+                <button 
+                     onClick={() => startAnalysis(lastAnalysisImage || originalImage || currentItem.image!)}
+                     className="absolute bottom-6 right-6 p-3 bg-white/90 backdrop-blur rounded-xl text-slate-400 hover:text-sky-500 shadow-sm transition-colors"
+                     title="Re-analyze Image"
+                >
+                     <RefreshCw size={20} />
                 </button>
 
                 <button 
