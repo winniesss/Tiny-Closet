@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Archive, RotateCcw, Pencil, Trash2, Check, Save, Camera, Heart } from 'lucide-react';
+import { X, Archive, RotateCcw, Pencil, Trash2, Check, Save, Camera, Heart, Ruler, ThumbsUp } from 'lucide-react';
 import { ClothingItem, Category, Season } from '../types';
 import { db } from '../db';
 import clsx from 'clsx';
@@ -8,9 +8,11 @@ interface Props {
   item: ClothingItem | null;
   onClose: () => void;
   onToggleArchive: (item: ClothingItem) => void;
+  isOutgrown?: boolean;
+  onMarkAsFitting?: (item: ClothingItem) => void;
 }
 
-export const ItemDetailModal: React.FC<Props> = ({ item, onClose, onToggleArchive }) => {
+export const ItemDetailModal: React.FC<Props> = ({ item, onClose, onToggleArchive, isOutgrown, onMarkAsFitting }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [formData, setFormData] = useState<Partial<ClothingItem>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -271,6 +273,14 @@ export const ItemDetailModal: React.FC<Props> = ({ item, onClose, onToggleArchiv
                     </div>
 
                     <div className="space-y-3">
+                        {isOutgrown && onMarkAsFitting && (
+                             <button 
+                                onClick={() => onMarkAsFitting(item)}
+                                className="w-full py-4 rounded-full bg-green-50 text-green-600 font-bold flex items-center justify-center gap-2 hover:bg-green-100 transition-colors mb-2"
+                            >
+                                <ThumbsUp size={20} /> It Still Fits!
+                            </button>
+                        )}
                         <button 
                             onClick={() => onToggleArchive(item)}
                             className={`w-full py-4 rounded-full font-bold flex items-center justify-center gap-2 transition-colors ${

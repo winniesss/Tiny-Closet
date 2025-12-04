@@ -2,36 +2,104 @@ import React, { useEffect, useState, useRef } from 'react';
 import { db } from '../db';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { ChildProfile } from '../types';
-import { Camera, User, Download, UploadCloud, CheckCircle2, AlertCircle, HelpCircle, Power, Settings as SettingsIcon, Info } from 'lucide-react';
+import { Camera, User, Download, UploadCloud, CheckCircle2, AlertCircle, HelpCircle, Power, Settings as SettingsIcon, Info, Ruler, Weight } from 'lucide-react';
 import clsx from 'clsx';
 
 export const Settings: React.FC = () => {
   const profiles = useLiveQuery(() => db.profile.toArray());
-  const [editing, setEditing] = useState<Partial<ChildProfile>>({});
+  const [editing, setEditing] = useState<Partial<ChildProfile>>({ unitSystem: 'metric' });
   const [message, setMessage] = useState('');
   const [importError, setImportError] = useState('');
   const [activeTab, setActiveTab] = useState<'config' | 'faq'>('config');
   
+  // Local state for inputs (to handle conversions smoothly)
+  const [displayHeight, setDisplayHeight] = useState('');
+  const [displayWeight, setDisplayWeight] = useState('');
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (profiles && profiles.length > 0) {
-      setEditing(profiles[0]);
+      const p = profiles[0];
+      setEditing(p);
+      updateDisplayValues(p.height, p.weight, p.unitSystem || 'metric');
     }
   }, [profiles]);
+
+  const updateDisplayValues = (h: number | undefined, w: number | undefined, system: 'metric' | 'imperial') => {
+      if (system === 'imperial') {
+          // cm -> inches (approx)
+          setDisplayHeight(h ? (h / 2.54).toFixed(1) : '');
+          // kg -> lbs
+          setDisplayWeight(w ? (w * 2.20462).toFixed(1) : '');
+      } else {
+          setDisplayHeight(h ? h.toString() : '');
+          setDisplayWeight(w ? w.toString() : '');
+      }
+  };
+
+  const handleUnitToggle = (sys: 'metric' | 'imperial') => {
+      // Save current values first
+      let currentH = parseFloat(displayHeight);
+      let currentW = parseFloat(displayWeight);
+      
+      // If we are switching FROM imperial TO metric, convert current inputs to metric for storage
+      if (editing.unitSystem === 'imperial' && sys === 'metric') {
+          if (!isNaN(currentH)) currentH = currentH * 2.54;
+          if (!isNaN(currentW)) currentW = currentW / 2.20462;
+      } 
+      // If we are switching FROM metric TO imperial, convert current inputs to metric (they are already metric)
+      else if (editing.unitSystem === 'metric' && sys === 'imperial') {
+          // No op, the values in state are already metric conceptually, but we need to convert for display
+          // Actually, let's just rely on the *stored* values in `editing` if they exist, 
+          // but if user typed something new, we need to respect that.
+          
+          // Simplified: Just take the current `editing.height/weight` which are always Metric, and update display.
+          // But if user changed the input without saving, `editing` might be stale? 
+          // Let's assume user saves before switching or we just auto-convert based on `editing` state.
+      }
+      
+      const newProfile = { ...editing, unitSystem: sys };
+      setEditing(newProfile);
+      updateDisplayValues(newProfile.height, newProfile.weight, sys);
+  };
+
+  const handleDisplayValueChange = (field: 'height' | 'weight', value: string) => {
+      if (field === 'height') setDisplayHeight(value);
+      if (field === 'weight') setDisplayWeight(value);
+
+      const num = parseFloat(value);
+      if (isNaN(num)) return;
+
+      if (editing.unitSystem === 'imperial') {
+          if (field === 'height') {
+              // in -> cm
+              setEditing(prev => ({ ...prev, height: num * 2.54 }));
+          } else {
+              // lb -> kg
+              setEditing(prev => ({ ...prev, weight: num / 2.20462 }));
+          }
+      } else {
+          if (field === 'height') setEditing(prev => ({ ...prev, height: num }));
+          else setEditing(prev => ({ ...prev, weight: num }));
+      }
+  };
 
   const handleSave = async () => {
     if (editing.id && editing.name && editing.birthDate) {
       await db.profile.update(editing.id, {
         name: editing.name,
         birthDate: editing.birthDate,
-        avatar: editing.avatar
+        avatar: editing.avatar,
+        height: editing.height,
+        weight: editing.weight,
+        unitSystem: editing.unitSystem
       });
       setMessage('Settings Saved!');
       setTimeout(() => setMessage(''), 3000);
     } else {
-        setMessage('Please fill in all fields');
+        setMessage('Please fill in Name and Birth Date');
     }
   };
 
@@ -96,7 +164,6 @@ export const Settings: React.FC = () => {
         }
 
         if (window.confirm(`Found ${data.items.length} items. This will REPLACE your current data. Continue?`)) {
-            // Fix: Cast db to any to avoid TS error: Property 'transaction' does not exist on type 'ClosetDatabase'
             await (db as any).transaction('rw', db.items, db.profile, async () => {
                 await db.items.clear();
                 await db.profile.clear();
@@ -117,7 +184,6 @@ export const Settings: React.FC = () => {
       }
     };
     reader.readAsText(file);
-    // Reset input
     e.target.value = ''; 
   };
 
@@ -219,6 +285,63 @@ export const Settings: React.FC = () => {
                     />
                 </div>
                 
+                {/* Measurements Section */}
+                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                    <div className="flex justify-between items-center mb-4">
+                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider ml-1">Measurements</label>
+                        <div className="flex bg-white rounded-lg p-1 shadow-sm">
+                            <button 
+                                onClick={() => handleUnitToggle('metric')}
+                                className={clsx(
+                                    "px-2 py-1 rounded-md text-[10px] font-bold transition-all",
+                                    editing.unitSystem === 'metric' ? "bg-slate-800 text-white" : "text-slate-400"
+                                )}
+                            >
+                                Metric
+                            </button>
+                            <button 
+                                onClick={() => handleUnitToggle('imperial')}
+                                className={clsx(
+                                    "px-2 py-1 rounded-md text-[10px] font-bold transition-all",
+                                    editing.unitSystem === 'imperial' ? "bg-slate-800 text-white" : "text-slate-400"
+                                )}
+                            >
+                                Imperial
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div className="flex gap-4">
+                        <div className="flex-1">
+                            <label className="flex items-center gap-1 text-xs font-bold text-slate-400 mb-2 ml-1">
+                                <Ruler size={12} /> Height ({editing.unitSystem === 'imperial' ? 'in' : 'cm'})
+                            </label>
+                            <input 
+                                type="number"
+                                value={displayHeight}
+                                onChange={(e) => handleDisplayValueChange('height', e.target.value)}
+                                className="w-full px-4 py-3 bg-white rounded-xl text-slate-800 font-bold focus:outline-none focus:ring-2 focus:ring-sky-200"
+                                placeholder="0"
+                            />
+                        </div>
+                        <div className="flex-1">
+                            <label className="flex items-center gap-1 text-xs font-bold text-slate-400 mb-2 ml-1">
+                                <Weight size={12} /> Weight ({editing.unitSystem === 'imperial' ? 'lb' : 'kg'})
+                            </label>
+                            <input 
+                                type="number"
+                                value={displayWeight}
+                                onChange={(e) => handleDisplayValueChange('weight', e.target.value)}
+                                className="w-full px-4 py-3 bg-white rounded-xl text-slate-800 font-bold focus:outline-none focus:ring-2 focus:ring-sky-200"
+                                placeholder="0"
+                            />
+                        </div>
+                    </div>
+                    <p className="mt-3 text-[10px] text-slate-400 font-medium leading-tight">
+                        Adding measurements helps suggestions fit better as they grow!
+                    </p>
+                </div>
+
                 <button 
                     onClick={handleSave}
                     className="w-full bg-sky-400 text-white font-bold py-5 rounded-full shadow-lg hover:scale-[1.02] transition-transform text-lg mt-4 flex justify-center items-center gap-2"
@@ -302,16 +425,16 @@ export const Settings: React.FC = () => {
                         </p>
                     </div>
                     <div>
-                        <h3 className="font-bold text-slate-800 text-sm mb-1">Q: Can it detect sizes automatically?</h3>
+                        <h3 className="font-bold text-slate-800 text-sm mb-1">Q: How do measurements improve suggestions?</h3>
                         <p className="text-xs text-slate-500 leading-relaxed font-medium">
-                            A: Yes! If you take a photo where the size tag is visible, or upload a screenshot of an order confirmation, the AI attempts to read the text (e.g., "2T", "6-9M") and save it to the item profile.
+                            A: If you add Height and Weight, the app checks if clothes (based on their label like "6M" or "2T") are likely too small for your child and filters them out of "Today's Look".
                         </p>
                     </div>
                 </div>
             </div>
 
             <div className="mt-12 text-center pb-4">
-                <p className="text-slate-300 text-xs font-bold mb-3">Tiny Closet v1.7</p>
+                <p className="text-slate-300 text-xs font-bold mb-3">Tiny Closet v1.8</p>
                 <button 
                 onClick={handleReload}
                 className="inline-flex items-center gap-2 text-sky-400 text-xs font-bold bg-white px-4 py-2 rounded-full shadow-sm hover:bg-sky-50 transition-colors"

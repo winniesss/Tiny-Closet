@@ -33,6 +33,7 @@ export interface ClothingItem {
   dateAdded: number;
   isArchived?: boolean;
   isFavorite?: boolean;
+  ignoreOutgrown?: boolean;
 }
 
 export interface ChildProfile {
@@ -40,6 +41,9 @@ export interface ChildProfile {
   name: string;
   birthDate: string;
   avatar?: string; // Base64 image string
+  height?: number; // in cm
+  weight?: number; // in kg
+  unitSystem?: 'metric' | 'imperial';
 }
 
 export interface WeatherData {

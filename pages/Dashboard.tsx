@@ -2,8 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
 import { WeatherWidget } from '../components/WeatherWidget';
-import { WeatherData, ClothingItem, Season, Category } from '../types';
-import { Shirt, AlertCircle, Cake, Archive, CheckCircle2, MapPin, RefreshCw, Sparkles, Heart } from 'lucide-react';
+import { WeatherData, ClothingItem, Season, Category, ChildProfile } from '../types';
+import { Shirt, AlertCircle, Cake, Archive, CheckCircle2, MapPin, RefreshCw, Sparkles, Heart, RotateCcw, Ruler, Weight } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Logo } from '../components/Logo';
 import { ItemDetailModal } from '../components/ItemDetailModal';
@@ -35,21 +35,67 @@ const getAgeInMonths = (birthDateString: string): number => {
     return (years * 12) + months;
 };
 
-const parseSizeToMaxMonths = (size: string | undefined): number | null => {
-    if (!size) return null;
-    const s = size.toUpperCase().replace(/\s/g, '');
-    if (s.includes('M')) {
-        const numbers = s.match(/\d+/g);
-        if (numbers && numbers.length > 0) return parseInt(numbers[numbers.length - 1], 10);
+// Returns standard max dimensions for common clothing sizes
+// Data roughly based on standard growth charts (CDC/WHO)
+const getSizeLimits = (sizeLabel: string) => {
+    const s = sizeLabel.toUpperCase().replace(/\s/g, '');
+    
+    // Format: { maxMonths, maxCm, maxKg }
+    if (s === 'NB' || s === 'NEWBORN') return { m: 1, cm: 55, kg: 4.5 };
+    if (s.includes('0-3M')) return { m: 3, cm: 61, kg: 6.0 };
+    if (s.includes('3-6M')) return { m: 6, cm: 67, kg: 8.0 };
+    if (s.includes('6-9M')) return { m: 9, cm: 72, kg: 9.5 };
+    if (s.includes('9-12M')) return { m: 12, cm: 78, kg: 11.0 };
+    if (s.includes('12-18M')) return { m: 18, cm: 83, kg: 12.5 };
+    if (s.includes('18-24M')) return { m: 24, cm: 88, kg: 13.5 };
+    
+    // Single month markers usually imply "Up to X months"
+    if (s === '3M') return { m: 3, cm: 61, kg: 6.0 };
+    if (s === '6M') return { m: 6, cm: 67, kg: 8.0 };
+    if (s === '9M') return { m: 9, cm: 72, kg: 9.5 };
+    if (s === '12M') return { m: 12, cm: 78, kg: 11.0 };
+    if (s === '18M') return { m: 18, cm: 83, kg: 12.5 };
+    if (s === '24M') return { m: 24, cm: 88, kg: 13.5 };
+    
+    // Toddler Years
+    if (s === '2T' || s === '2Y') return { m: 30, cm: 92, kg: 14.5 };
+    if (s === '3T' || s === '3Y') return { m: 42, cm: 100, kg: 16.5 };
+    if (s === '4T' || s === '4Y') return { m: 54, cm: 108, kg: 18.5 };
+    if (s === '5T' || s === '5Y') return { m: 66, cm: 115, kg: 21.0 };
+    if (s === '6' || s === '6Y' || s === 'XS') return { m: 78, cm: 120, kg: 24.0 };
+    if (s === '7' || s === '7Y') return { m: 90, cm: 125, kg: 27.0 };
+    
+    // Fallback: Try to parse generic number as year or month
+    const numbers = s.match(/\d+/g);
+    if (numbers && numbers.length > 0) {
+        const num = parseInt(numbers[numbers.length - 1], 10);
+        // If small number, assume years
+        if (num > 0 && num < 14) return { m: num * 12 + 6, cm: 80 + (num * 6), kg: 10 + (num * 2) }; // Rough estimate
     }
-    if (s.includes('T') || s.includes('Y')) {
-        const numbers = s.match(/\d+/g);
-        if (numbers && numbers.length > 0) return parseInt(numbers[numbers.length - 1], 10) * 12;
-    }
-    const plainNum = parseInt(s, 10);
-    if (!isNaN(plainNum) && plainNum < 14) return plainNum * 12;
-    if (s === 'NB' || s === 'NEWBORN') return 1;
+
     return null;
+};
+
+// Check if item is outgrown based on available stats
+const isItemOutgrown = (item: ClothingItem, kid: ChildProfile): boolean => {
+    if (item.ignoreOutgrown || !item.sizeLabel) return false;
+    
+    const limits = getSizeLimits(item.sizeLabel);
+    if (!limits) return false;
+
+    // Check Height (if available) - allow 2cm buffer
+    if (kid.height && kid.height > limits.cm + 2) return true;
+
+    // Check Weight (if available) - allow 0.5kg buffer
+    if (kid.weight && kid.weight > limits.kg + 0.5) return true;
+
+    // Fallback to Age if stats missing
+    if (!kid.height && !kid.weight && kid.birthDate) {
+        const ageMonths = getAgeInMonths(kid.birthDate);
+        if (ageMonths > limits.m + 1) return true;
+    }
+
+    return false;
 };
 
 const OutfitCollage: React.FC<{ items: ClothingItem[], onClickItem: (i: ClothingItem) => void }> = ({ items, onClickItem }) => {
@@ -137,7 +183,7 @@ export const Dashboard: React.FC = () => {
   const [suggestion1, setSuggestion1] = useState<ClothingItem[]>([]);
   const [suggestion2, setSuggestion2] = useState<ClothingItem[]>([]);
   const [activeOption, setActiveOption] = useState<1 | 2>(1);
-  const [justArchivedCount, setJustArchivedCount] = useState(0);
+  const [justArchivedIds, setJustArchivedIds] = useState<number[]>([]);
   const [selectedItem, setSelectedItem] = useState<ClothingItem | null>(null);
   
   // Weather State
@@ -173,6 +219,9 @@ export const Dashboard: React.FC = () => {
   useEffect(() => {
     if (!allItems || allItems.length === 0) return;
 
+    // Filter items pool to exclude anything outgrown (unless ignored)
+    const fitItems = allItems.filter(item => !currentKid || !isItemOutgrown(item, currentKid));
+
     const generateSmartOutfit = (seed: number): ClothingItem[] => {
         const t = weather.temp;
         let suitableSeasons: Season[] = [Season.All];
@@ -197,7 +246,7 @@ export const Dashboard: React.FC = () => {
 
         // Helpers
         const getPool = (cats: Category[], seasons: Season[]) => {
-            return allItems.filter(i => 
+            return fitItems.filter(i => 
                 cats.includes(i.category) && 
                 (i.seasons.some(s => seasons.includes(s)) || i.seasons.includes(Season.All))
             );
@@ -260,7 +309,7 @@ export const Dashboard: React.FC = () => {
             let outers = getPool([Category.Outerwear], suitableSeasons);
             if (outers.length === 0 && needsOuterwear) {
                  // Fallback to any outerwear if strictly needed
-                 outers = allItems.filter(i => i.category === Category.Outerwear);
+                 outers = fitItems.filter(i => i.category === Category.Outerwear);
             }
             const outer = pick(outers);
             if (outer) outfit.push(outer);
@@ -285,16 +334,14 @@ export const Dashboard: React.FC = () => {
     setSuggestion1(generateSmartOutfit(Math.random()));
     setTimeout(() => setSuggestion2(generateSmartOutfit(Math.random())), 50);
     
-  }, [allItems, weather]);
+  }, [allItems, weather, currentKid]);
 
   const activeSuggestion = activeOption === 1 ? suggestion1 : suggestion2;
 
-  // Identify outgrown items
+  // Identify outgrown items for the alert section
   const outgrownItems = allItems?.filter(item => {
-    if (!currentKid?.birthDate || !item.sizeLabel) return false;
-    const currentAgeMonths = getAgeInMonths(currentKid.birthDate);
-    const maxMonths = parseSizeToMaxMonths(item.sizeLabel);
-    return maxMonths !== null && currentAgeMonths > maxMonths + 1;
+    if (!currentKid) return false;
+    return isItemOutgrown(item, currentKid);
   }) || [];
 
   const handleArchiveOutgrown = async () => {
@@ -302,8 +349,15 @@ export const Dashboard: React.FC = () => {
       const ids = outgrownItems.map(i => i.id).filter(id => id !== undefined) as number[];
       if (ids.length > 0) {
           await db.items.bulkUpdate(ids.map(id => ({ key: id, changes: { isArchived: true } })));
-          setJustArchivedCount(ids.length);
-          setTimeout(() => setJustArchivedCount(0), 3000);
+          setJustArchivedIds(ids);
+          setTimeout(() => setJustArchivedIds([]), 5000);
+      }
+  };
+  
+  const handleUndoArchive = async () => {
+      if (justArchivedIds.length > 0) {
+          await db.items.bulkUpdate(justArchivedIds.map(id => ({ key: id, changes: { isArchived: false } })));
+          setJustArchivedIds([]);
       }
   };
 
@@ -314,12 +368,43 @@ export const Dashboard: React.FC = () => {
       }
   };
 
+  const handleMarkAsFitting = async (item: ClothingItem) => {
+      if (item.id) {
+          await db.items.update(item.id, { ignoreOutgrown: true });
+          setSelectedItem(null);
+      }
+  };
+
   const regenerate = () => {
-      // Force re-run of effect by toggling a dummy state or just calling logic?
-      // Easiest is to just manually set random data again, but logic is inside useEffect.
-      // Let's just flip active option for "new look" feel or implement a refresh signal.
-      // For now, simpler to just rely on the 2 options.
       setActiveOption(prev => prev === 1 ? 2 : 1);
+  };
+
+  const formatStats = () => {
+      if (!currentKid?.height && !currentKid?.weight) return null;
+      
+      const isImp = currentKid.unitSystem === 'imperial';
+      const parts = [];
+      
+      if (currentKid.height) {
+          if (isImp) {
+              // Convert cm to inches, or feet/inches? Let's just do inches or X'Y"
+              const inchesTotal = currentKid.height / 2.54;
+              parts.push(`${inchesTotal.toFixed(0)} in`);
+          } else {
+              parts.push(`${currentKid.height} cm`);
+          }
+      }
+      
+      if (currentKid.weight) {
+          if (isImp) {
+              const lbs = currentKid.weight * 2.20462;
+              parts.push(`${lbs.toFixed(1)} lb`);
+          } else {
+              parts.push(`${currentKid.weight} kg`);
+          }
+      }
+      
+      return parts.join(' • ');
   };
 
   return (
@@ -327,25 +412,33 @@ export const Dashboard: React.FC = () => {
       <header className="mb-8 pt-4 flex justify-between items-end">
         <div>
             <Logo />
-            <div className="flex items-center gap-2 mt-2 ml-1">
+            <div className="flex flex-col mt-2 ml-1">
                 <p className="text-slate-500 font-bold text-lg">
                   Hi, {currentKid?.name || 'Little One'}
                 </p>
-                {currentKid?.birthDate && (
-                    <div className="flex items-center gap-1 bg-pink-100 text-pink-500 px-2 py-0.5 rounded-full font-bold text-xs">
-                        <Cake size={12} />
-                        <span>{calculateAge(currentKid.birthDate)}</span>
-                    </div>
-                )}
+                <div className="flex items-center gap-2 mt-1">
+                    {currentKid?.birthDate && (
+                        <div className="flex items-center gap-1 bg-pink-100 text-pink-500 px-2 py-0.5 rounded-full font-bold text-[10px]">
+                            <Cake size={10} />
+                            <span>{calculateAge(currentKid.birthDate)}</span>
+                        </div>
+                    )}
+                    {formatStats() && (
+                        <div className="flex items-center gap-1 bg-sky-100 text-sky-500 px-2 py-0.5 rounded-full font-bold text-[10px]">
+                            <Ruler size={10} />
+                            <span>{formatStats()}</span>
+                        </div>
+                    )}
+                </div>
             </div>
         </div>
-        <div className="h-12 w-12 rounded-full bg-sky-200 text-sky-700 flex items-center justify-center font-bold text-xl font-serif border-2 border-white shadow-sm mb-2 overflow-hidden relative">
+        <Link to="/settings" className="h-12 w-12 rounded-full bg-sky-200 text-sky-700 flex items-center justify-center font-bold text-xl font-serif border-2 border-white shadow-sm mb-2 overflow-hidden relative transition-transform active:scale-95">
             {currentKid?.avatar ? (
                 <img src={currentKid.avatar} alt="Profile" className="w-full h-full object-cover" />
             ) : (
                 (currentKid?.name || 'K')[0]
             )}
-        </div>
+        </Link>
       </header>
 
       <div className="relative">
@@ -412,7 +505,7 @@ export const Dashboard: React.FC = () => {
                     <div>
                         <h3 className="font-bold text-slate-800 text-lg mb-1 font-serif">Growing Up!</h3>
                         <p className="text-sm text-slate-500 leading-relaxed font-bold">
-                        We found <span className="text-red-500">{outgrownItems.length} items</span> that might be too small for {calculateAge(currentKid?.birthDate || '')}.
+                        We found <span className="text-red-500">{outgrownItems.length} items</span> that might be too small for {currentKid?.name || 'your kid'}.
                         </p>
                     </div>
                </div>
@@ -442,35 +535,28 @@ export const Dashboard: React.FC = () => {
         </section>
       )}
 
-      {justArchivedCount > 0 && (
-          <div className="fixed bottom-24 left-1/2 -translate-x-1/2 bg-slate-800 text-white px-6 py-3 rounded-full shadow-xl flex items-center gap-3 animate-in fade-in slide-in-from-bottom-8 z-50">
-              <CheckCircle2 className="text-green-400" size={20} />
-              <span className="font-bold">Archived {justArchivedCount} items</span>
+      {justArchivedIds.length > 0 && (
+          <div className="fixed bottom-24 left-1/2 -translate-x-1/2 bg-slate-800 text-white px-6 py-3 rounded-full shadow-xl flex items-center gap-4 animate-in fade-in slide-in-from-bottom-8 z-50 whitespace-nowrap">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="text-green-400" size={20} />
+                <span className="font-bold">Archived {justArchivedIds.length} items</span>
+              </div>
+              <div className="w-px h-6 bg-slate-600"></div>
+              <button 
+                onClick={handleUndoArchive}
+                className="font-bold text-orange-300 hover:text-white flex items-center gap-1 transition-colors"
+              >
+                  <RotateCcw size={16} /> Undo
+              </button>
           </div>
       )}
-
-      <section>
-        <div className="flex justify-between items-center mb-4 px-1">
-          <h2 className="text-lg text-slate-800 font-serif font-bold">Recent Upload</h2>
-          <Link to="/closet" className="text-sm font-bold text-orange-500 hover:text-orange-600">
-            See All
-          </Link>
-        </div>
-        <div className="flex gap-4 overflow-x-auto no-scrollbar pb-4 -mx-6 px-6">
-          {allItems?.slice().reverse().slice(0, 5).map(item => (
-            <div key={item.id} className="w-24 shrink-0 cursor-pointer transition-transform active:scale-95" onClick={() => setSelectedItem(item)}>
-                 <div className="aspect-square rounded-[1.5rem] overflow-hidden bg-white border border-slate-100 shadow-sm mb-2">
-                    <img src={item.image} alt={item.category} className="w-full h-full object-cover" />
-                 </div>
-            </div>
-          ))}
-        </div>
-      </section>
 
       <ItemDetailModal 
         item={selectedItem} 
         onClose={() => setSelectedItem(null)} 
         onToggleArchive={handleToggleArchive}
+        isOutgrown={outgrownItems.some(i => i.id === selectedItem?.id)}
+        onMarkAsFitting={handleMarkAsFitting}
       />
     </div>
   );
