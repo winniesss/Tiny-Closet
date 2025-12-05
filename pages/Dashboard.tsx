@@ -602,19 +602,19 @@ export const Dashboard: React.FC = () => {
 
                          if (idx === 0) {
                              // Main Top Piece
-                             posClass = "w-3/4 ml-auto mr-4";
+                             posClass = "w-3/5 ml-auto mr-6";
                              rotateClass = "rotate-[-2deg]";
                              zIndex = 20;
                              badgePos = "-top-3 -left-3";
                          } else if (idx === 1) {
                              // Bottom Piece - Overlapping slightly
-                             posClass = "w-2/3 -mt-16 ml-4";
+                             posClass = "w-3/5 -mt-12 ml-6";
                              rotateClass = "rotate-[3deg]";
                              zIndex = 30;
                              badgePos = "-top-2 -right-2";
                          } else if (idx === 2) {
                              // Shoes/Accessory
-                             posClass = "w-1/2 ml-auto -mt-10 mr-2";
+                             posClass = "w-2/5 ml-auto -mt-8 mr-4";
                              rotateClass = "rotate-[-4deg]";
                              zIndex = 40;
                              badgePos = "-bottom-2 -left-2";
@@ -666,7 +666,7 @@ export const Dashboard: React.FC = () => {
                 </div>
 
                 {/* Decor Elements */}
-                <Star size={16} className="absolute top-4 right-6 text-yellow-400 fill-yellow-400 rotate-12 opacity-80" />
+                {/* Star removed as requested */}
             </div>
 
           </div>
