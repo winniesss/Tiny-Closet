@@ -589,7 +589,7 @@ export const Dashboard: React.FC = () => {
           <div key={activeTab + (isLiked ? '-liked' : '')} className="animate-in fade-in slide-in-from-bottom-2 duration-500">
             
             {/* --- MAGAZINE STYLE LAYOUT CONTAINER --- */}
-            <div className="relative bg-white rounded-xl shadow-lg border border-slate-100 p-6 pb-12 overflow-hidden min-h-[420px]">
+            <div className="relative bg-white rounded-xl shadow-lg border border-slate-100 p-4 pb-8 overflow-hidden min-h-[320px]">
                 
                 {/* Main Collage Area */}
                 <div className="relative">
@@ -602,19 +602,19 @@ export const Dashboard: React.FC = () => {
 
                          if (idx === 0) {
                              // Main Top Piece
-                             posClass = "w-4/5 ml-auto mr-4";
+                             posClass = "w-3/4 ml-auto mr-4";
                              rotateClass = "rotate-[-2deg]";
                              zIndex = 20;
                              badgePos = "-top-3 -left-3";
                          } else if (idx === 1) {
                              // Bottom Piece - Overlapping slightly
-                             posClass = "w-3/4 -mt-12 ml-4";
+                             posClass = "w-2/3 -mt-16 ml-4";
                              rotateClass = "rotate-[3deg]";
                              zIndex = 30;
                              badgePos = "-top-2 -right-2";
                          } else if (idx === 2) {
                              // Shoes/Accessory
-                             posClass = "w-1/2 ml-auto -mt-8 mr-2";
+                             posClass = "w-1/2 ml-auto -mt-10 mr-2";
                              rotateClass = "rotate-[-4deg]";
                              zIndex = 40;
                              badgePos = "-bottom-2 -left-2";
