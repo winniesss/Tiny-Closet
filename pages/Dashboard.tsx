@@ -4,11 +4,12 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
 import { WeatherWidget } from '../components/WeatherWidget';
 import { WeatherData, ClothingItem, Season, Category } from '../types';
-import { Shirt, AlertCircle, Cake, Archive, CheckCircle2, Sparkles, Smile, Heart, RotateCcw, TrendingUp } from 'lucide-react';
+import { Shirt, AlertCircle, Cake, Archive, CheckCircle2, Sparkles, Smile, Heart, RotateCcw, TrendingUp, ArrowRight, Star } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Logo } from '../components/Logo';
 import { ItemDetailModal } from '../components/ItemDetailModal';
 import { getCoordinates, fetchWeather } from '../services/weatherService';
+import clsx from 'clsx';
 
 // --- STYLING INTELLIGENCE UTILS ---
 
@@ -557,58 +558,22 @@ export const Dashboard: React.FC = () => {
       <WeatherWidget data={weather} locationEnabled={locationEnabled} />
 
       <section className="mb-10 relative">
-        <div className="flex justify-between items-center mb-5 px-1 pt-2">
-          {/* Left: Title & Toggle */}
-          <div className="flex flex-col gap-3">
-              <h2 className="text-xl text-slate-800 font-serif font-bold leading-none">Today's Outfit</h2>
-              <div className="flex bg-white rounded-full p-1 shadow-sm border border-slate-100 self-start">
+         <div className="flex items-center justify-between mb-4">
+              <div className="flex gap-4">
                   <button 
                     onClick={() => { setActiveTab('playful'); setIsLiked(false); }}
-                    className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-1 ${activeTab === 'playful' ? 'bg-orange-400 text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                    className={`text-lg font-serif font-bold transition-colors ${activeTab === 'playful' ? 'text-slate-800 underline decoration-orange-400 decoration-4 underline-offset-4' : 'text-slate-300 hover:text-slate-500'}`}
                   >
-                      <Smile size={12} /> Playful
+                      Playful
                   </button>
                   <button 
                     onClick={() => { setActiveTab('chic'); setIsLiked(false); }}
-                    className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all flex items-center gap-1 ${activeTab === 'chic' ? 'bg-sky-400 text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                    className={`text-lg font-serif font-bold transition-colors ${activeTab === 'chic' ? 'text-slate-800 underline decoration-sky-400 decoration-4 underline-offset-4' : 'text-slate-300 hover:text-slate-500'}`}
                   >
-                      <Sparkles size={12} /> Chic
+                      Chic
                   </button>
               </div>
-          </div>
-          
-          {/* Right: Actions */}
-          <div className="flex items-center gap-2 self-end mb-1">
-            {/* Shuffle Button */}
-             <button 
-                onClick={() => generateOutfits(true)}
-                className="w-11 h-11 rounded-full flex items-center justify-center shadow-sm bg-white border border-slate-100 text-slate-400 hover:text-sky-500 hover:border-sky-200 active:scale-95 transition-all"
-                title="Shuffle Outfit"
-             >
-                 <RotateCcw size={18} />
-             </button>
-
-            {/* Like Button */}
-            {activeSuggestion.length > 0 && (
-                <button 
-                    onClick={handleLikeOutfit}
-                    disabled={isLiked}
-                    className={`w-11 h-11 rounded-full flex items-center justify-center shadow-sm transition-all border ${isLiked ? 'bg-red-50 border-red-100' : 'bg-white border-slate-100 active:scale-95 hover:border-red-200'}`}
-                >
-                    <Heart 
-                        size={20} 
-                        className={`transition-all duration-300 ${isLiked ? 'fill-red-500 text-red-500 scale-110' : 'text-slate-300 hover:text-red-400'}`} 
-                    />
-                    {/* Floating Heart Animation */}
-                    {showHeartAnim && (
-                        <div className="absolute pointer-events-none animate-out fade-out slide-out-to-top-10 duration-1000 z-50">
-                            <Heart size={40} className="fill-red-500 text-red-500" />
-                        </div>
-                    )}
-                </button>
-            )}
-          </div>
-        </div>
+         </div>
         
         {(!allItems || allItems.length === 0) ? (
           <div className="bg-white rounded-[2rem] p-10 text-center shadow-sm border border-slate-100">
@@ -621,22 +586,89 @@ export const Dashboard: React.FC = () => {
             </Link>
           </div>
         ) : activeSuggestion.length > 0 ? (
-          <div className="grid grid-cols-2 gap-4 animate-in fade-in slide-in-from-bottom-2 duration-300" key={activeTab + (isLiked ? '-liked' : '')}>
-            {activeSuggestion.map((item, i) => (
-              <div 
-                key={`${item.id}-${i}`} 
-                onClick={() => setSelectedItem(item)}
-                className="group relative bg-white rounded-[2rem] p-3 shadow-sm border border-slate-50 cursor-pointer transition-transform active:scale-95 h-full flex flex-col"
-              >
-                 <div className="w-full aspect-[3/4] overflow-hidden rounded-[1.5rem] bg-orange-50 relative mb-3">
-                   <img src={item.image} alt={item.description} className="w-full h-full object-cover" />
-                 </div>
-                 <div className="px-1 flex-1">
-                    <h3 className="font-bold text-slate-800 leading-tight mb-1 font-serif">{item.category}</h3>
-                    <p className="text-xs text-slate-500 font-bold uppercase truncate">{item.brand}</p>
-                 </div>
-              </div>
-            ))}
+          <div key={activeTab + (isLiked ? '-liked' : '')} className="animate-in fade-in slide-in-from-bottom-2 duration-500">
+            
+            {/* --- MAGAZINE STYLE LAYOUT CONTAINER --- */}
+            <div className="relative bg-white rounded-xl shadow-lg border border-slate-100 p-6 pb-12 overflow-hidden min-h-[420px]">
+                
+                {/* Main Collage Area */}
+                <div className="relative">
+                     {activeSuggestion.map((item, idx) => {
+                         // Dynamic Styling for Collage Effect
+                         let posClass = "";
+                         let rotateClass = "";
+                         let zIndex = 10;
+                         let badgePos = "";
+
+                         if (idx === 0) {
+                             // Main Top Piece
+                             posClass = "w-4/5 ml-auto mr-4";
+                             rotateClass = "rotate-[-2deg]";
+                             zIndex = 20;
+                             badgePos = "-top-3 -left-3";
+                         } else if (idx === 1) {
+                             // Bottom Piece - Overlapping slightly
+                             posClass = "w-3/4 -mt-12 ml-4";
+                             rotateClass = "rotate-[3deg]";
+                             zIndex = 30;
+                             badgePos = "-top-2 -right-2";
+                         } else if (idx === 2) {
+                             // Shoes/Accessory
+                             posClass = "w-1/2 ml-auto -mt-8 mr-2";
+                             rotateClass = "rotate-[-4deg]";
+                             zIndex = 40;
+                             badgePos = "-bottom-2 -left-2";
+                         } else {
+                             posClass = "w-1/3 absolute bottom-4 left-8";
+                             rotateClass = "rotate-[6deg]";
+                             zIndex = 50;
+                             badgePos = "-top-2 left-1/2";
+                         }
+
+                         return (
+                            <div 
+                                key={`${item.id}-${idx}`}
+                                onClick={() => setSelectedItem(item)}
+                                className={`relative group transition-transform duration-300 hover:scale-105 hover:z-[60] cursor-pointer ${posClass} ${rotateClass}`}
+                                style={{ zIndex }}
+                            >
+                                <div className="bg-white p-1 shadow-md border border-slate-100 rounded-lg">
+                                    <img src={item.image} alt={item.category} className="w-full h-auto object-cover rounded-md" />
+                                </div>
+                                
+                                {/* Number Badge */}
+                                <div className={`absolute ${badgePos} w-8 h-8 rounded-full bg-slate-800 text-white flex items-center justify-center font-serif font-bold text-xs shadow-md border-2 border-white`}>
+                                    {idx + 1}
+                                </div>
+                            </div>
+                         );
+                     })}
+                </div>
+
+                {/* Floating "Sticker" Actions */}
+                <div className="absolute bottom-4 right-4 flex gap-3 z-[60]">
+                     <button 
+                        onClick={() => generateOutfits(true)}
+                        className="w-12 h-12 rounded-full bg-white border-2 border-slate-100 shadow-lg flex items-center justify-center text-slate-400 hover:text-sky-500 hover:border-sky-200 active:scale-95 transition-all"
+                     >
+                         <RotateCcw size={20} />
+                     </button>
+                     
+                     <button 
+                        onClick={handleLikeOutfit}
+                        className={clsx(
+                            "w-12 h-12 rounded-full border-2 shadow-lg flex items-center justify-center transition-all active:scale-95",
+                            isLiked ? "bg-red-500 border-red-500 text-white" : "bg-white border-slate-100 text-slate-300 hover:text-red-400"
+                        )}
+                     >
+                         <Heart size={20} className={clsx(isLiked && "fill-current")} />
+                     </button>
+                </div>
+
+                {/* Decor Elements */}
+                <Star size={16} className="absolute top-4 right-6 text-yellow-400 fill-yellow-400 rotate-12 opacity-80" />
+            </div>
+
           </div>
         ) : (
           <div className="p-8 rounded-[2rem] bg-orange-50 border border-orange-100 text-center">
@@ -701,8 +733,8 @@ export const Dashboard: React.FC = () => {
       <section>
         <div className="flex justify-between items-center mb-4 px-1">
           <h2 className="text-lg text-slate-800 font-serif font-bold">Recent Upload</h2>
-          <Link to="/closet" className="text-sm font-bold text-orange-500 hover:text-orange-600">
-            See All
+          <Link to="/closet" className="text-sm font-bold text-orange-500 hover:text-orange-600 flex items-center gap-1">
+            See All <ArrowRight size={14} />
           </Link>
         </div>
         <div className="flex gap-4 overflow-x-auto no-scrollbar pb-4 -mx-6 px-6">
