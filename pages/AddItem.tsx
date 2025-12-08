@@ -358,7 +358,7 @@ export const AddItem: React.FC = () => {
 
   if (step === 'upload') {
     return (
-      <div className="h-screen flex flex-col bg-orange-50 relative pb-20">
+      <div className="h-full flex flex-col bg-orange-50 relative pb-4">
         <button 
             onClick={() => navigate('/')}
             className="absolute top-6 right-6 p-3 bg-white rounded-full text-slate-400 hover:text-slate-600 shadow-sm z-10"
@@ -418,8 +418,8 @@ export const AddItem: React.FC = () => {
 
   if (step === 'preview') {
       return (
-          <div className="h-[100dvh] flex flex-col bg-slate-900 relative">
-               <div className="absolute top-0 left-0 right-0 p-4 z-20 flex justify-between items-center text-white">
+          <div className="h-full flex flex-col bg-slate-900 relative">
+               <div className="absolute top-0 left-0 right-0 p-4 z-20 flex justify-between items-center text-white pt-[calc(1rem+env(safe-area-inset-top))]">
                   <button onClick={() => setStep('upload')} className="p-2 bg-black/20 backdrop-blur rounded-full hover:bg-black/30 transition-colors">
                       <X size={24} />
                   </button>
@@ -431,7 +431,7 @@ export const AddItem: React.FC = () => {
                   )}
                </div>
   
-               <div className="p-6 pb-8 bg-slate-900 flex gap-6 justify-center items-center z-20 relative">
+               <div className="p-6 bg-slate-900 flex gap-6 justify-center items-center z-20 relative pb-[calc(2rem+env(safe-area-inset-bottom))]">
                    <button 
                       onClick={() => {
                         setStep('upload');
@@ -533,7 +533,7 @@ export const AddItem: React.FC = () => {
               </div>
 
               {/* Bottom Control Bar - Z-50 */}
-              <div className="flex-none bg-zinc-900 pb-safe pt-6 px-6 pb-8 z-50 shadow-2xl">
+              <div className="flex-none bg-zinc-900 px-6 pt-6 z-50 shadow-2xl pb-[calc(2rem+env(safe-area-inset-bottom))]">
                   <div className="max-w-md mx-auto">
                       <div className="flex items-center justify-center gap-6 mb-6">
                            <span className="text-white/60 text-xs font-bold uppercase tracking-wider bg-white/10 px-3 py-1 rounded-full">
@@ -573,7 +573,7 @@ export const AddItem: React.FC = () => {
 
   if (step === 'analyzing') {
     return (
-      <div className="h-screen flex flex-col items-center justify-center bg-orange-50 p-6 z-[60] relative">
+      <div className="h-full flex flex-col items-center justify-center bg-orange-50 p-6 z-[60] relative">
         <div className="relative w-48 h-48 mb-8 bg-white p-2 rounded-[2.5rem] shadow-lg rotate-3 overflow-hidden">
           {imagePreview && <img src={imagePreview} alt="Analyzing" className="w-full h-full object-cover rounded-[2rem] opacity-50" />}
           <div className="absolute inset-0 flex items-center justify-center">
@@ -589,7 +589,7 @@ export const AddItem: React.FC = () => {
   const currentItem = reviewItems[currentIndex];
 
   return (
-    <div className="min-h-screen bg-orange-50 p-6 pb-28 max-w-md mx-auto">
+    <div className="min-h-full bg-orange-50 p-6 pb-28 max-w-md mx-auto">
       <header className="flex justify-between items-center mb-8">
         <h1 className="text-2xl text-slate-800">Review</h1>
         <button onClick={() => setStep('upload')} className="bg-white p-2 rounded-full text-slate-400 hover:text-slate-600 shadow-sm">
