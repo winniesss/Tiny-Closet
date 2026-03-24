@@ -75,9 +75,7 @@ const AppContent: React.FC = () => {
        )}
 
        {/* Navbar - Hidden when adding an item, planning, or on sign up page */}
-       <div className={clsx("absolute bottom-0 left-0 right-0 z-40 transition-transform duration-300", (isAddItem || isPlan || isSignUp) ? "translate-y-full" : "translate-y-0")}>
-           <Navbar />
-       </div>
+       {!(isAddItem || isPlan || isSignUp) && <Navbar />}
 
        {/* Add Item Overlay */}
        {isAddItem && (
