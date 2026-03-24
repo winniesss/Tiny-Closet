@@ -258,7 +258,7 @@ export const analyzeClothingImage = async (base64Image: string): Promise<Analyze
          - If this is a single item photo, detect it normally.
       
       2. DIGITAL SCREENSHOTS (Websites/Carts/Social Media):
-         - **box_2d**: Focus strictly on the product image thumbnail.
+         - **box_2d**: Focus on the product image thumbnail. Include a small margin around the garment — never cut off any part of the clothing.
          - **CRITICAL EXCLUSIONS**: You must EXCLUDE all UI elements:
            - Price tags ($19.99)
            - "Add to Cart" / "Buy" buttons
@@ -268,8 +268,8 @@ export const analyzeClothingImage = async (base64Image: string): Promise<Analyze
          - **Whitespace**: If the product is inside a white square container, crop to the GARMENT, not the container edges. Remove excess white padding.
 
       3. REAL PHOTOS (Flat Lay/Hanger):
-         - **box_2d**: Crop TIGHTLY to the fabric edges.
-         - **Hangers**: Exclude the hook entirely. Crop at the shoulder line/neckline.
+         - **box_2d**: Include the ENTIRE garment with a small margin. Do NOT cut off sleeves, hems, collars, or any part of the clothing. It is better to include too much than too little.
+         - **Hangers**: Exclude the hook but keep the full garment below it.
          - **Mannequins**: Exclude the mannequin neck/stand if possible.
          - **Shadows**: Do NOT include cast shadows on the wall/floor.
       
@@ -322,7 +322,7 @@ export const analyzeClothingImage = async (base64Image: string): Promise<Analyze
           // Note: We intentionally use the original 'base64Image' here for the final crop
           // to ensure we get the highest resolution result possible, even though we analyzed a compressed version.
           // Since bounding boxes are normalized (0-1000), they apply correctly to the original image too.
-          const croppedImage = await cropImage(base64Image, item.box_2d, 0.01);
+          const croppedImage = await cropImage(base64Image, item.box_2d, 0.08);
           return { ...item, image: croppedImage };
         } catch (e) {
           console.error("Cropping failed", e);
