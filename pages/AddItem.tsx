@@ -500,43 +500,36 @@ export const AddItem: React.FC = () => {
       }
   };
 
-  // HD Image: stores found product page info
+  // HD Upscale
   const [hdPreviewUrl, setHdPreviewUrl] = useState<string | null>(null);
   const [hdSourceUrl, setHdSourceUrl] = useState<string | null>(null);
 
-  const handleFindHDImage = async () => {
+  const upscaleImage = (base64: string, scale: number = 2): Promise<string> => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth * scale;
+        canvas.height = img.naturalHeight * scale;
+        const ctx = canvas.getContext('2d')!;
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', 0.92));
+      };
+      img.src = base64;
+    });
+  };
+
+  const handleUpscaleImage = async () => {
     const current = reviewItems[currentIndex];
-    if (!current) return;
-
-    const queryParts = [
-      current.brand && current.brand !== 'Unknown' ? current.brand : '',
-      current.description,
-      current.color,
-      current.category,
-    ].filter(Boolean);
-    const query = queryParts.join(' ');
-
+    if (!current?.image) return;
     setHdSearching(true);
-    setHdSearchError(null);
-    setHdPreviewUrl(null);
-    setHdSourceUrl(null);
-
     try {
-      const result = await findBetterItemImage(query, current.image);
-      if (result.success && result.data?.imageUrl) {
-        // Got the HD image (base64 or URL)!
-        setHdPreviewUrl(result.data.imageUrl);
-        setHdSourceUrl(result.data.sourceUrl);
-      } else if (result.success && result.data?.sourceUrl) {
-        // Found product page but couldn't extract image
-        setHdSourceUrl(result.data.sourceUrl);
-        setHdSearchError('Could not extract image from product page.');
-      } else {
-        setHdSearchError(result.error || 'Product not found online');
-      }
+      const upscaled = await upscaleImage(current.image);
+      handleUpdateCurrentItem('image', upscaled);
     } catch (e) {
-      console.error('HD image search failed', e);
-      setHdSearchError('Search failed. Try again.');
+      console.error('Upscale failed', e);
     } finally {
       setHdSearching(false);
     }
@@ -960,45 +953,23 @@ export const AddItem: React.FC = () => {
                     </div>
                 )}
 
-                {/* HD Image Preview Overlay */}
-                {hdPreviewUrl && (
-                    <div className="absolute inset-0 bg-white flex flex-col items-center justify-center z-40 p-4 gap-3">
-                         <div className="bg-green-50 w-10 h-10 rounded-full flex items-center justify-center text-green-500">
-                             <Check size={22} />
-                         </div>
-                         <p className="text-xs font-bold text-green-600">HD Image Found!</p>
-                         <img
-                           src={hdPreviewUrl}
-                           alt="HD Preview"
-                           className="max-w-full max-h-[55%] object-contain rounded-xl shadow-md"
-                         />
-                         <div className="flex gap-3">
-                             <button
-                                 onClick={handleDismissHDPreview}
-                                 className="px-5 py-2.5 bg-slate-100 text-slate-600 font-bold rounded-full text-sm hover:bg-slate-200 transition-colors"
-                             >
-                                 Keep Original
-                             </button>
-                             <button
-                                 onClick={handleUseHDImage}
-                                 className="px-5 py-2.5 bg-sky-400 text-white font-bold rounded-full text-sm hover:bg-sky-500 transition-colors shadow-md"
-                             >
-                                 Use This Image
-                             </button>
-                         </div>
+                {/* Upscale Loading Overlay */}
+                {hdSearching && (
+                    <div className="absolute inset-0 bg-white/50 backdrop-blur-sm flex items-center justify-center z-40">
+                         <Loader2 className="animate-spin text-sky-500" size={32} />
                     </div>
                 )}
            </div>
 
-           {/* Manual HD retry button (in case auto-fetch missed) */}
+           {/* Upscale button */}
            <div className="mt-3 flex items-center justify-center gap-2">
                <button
-                   onClick={handleFindHDImage}
+                   onClick={handleUpscaleImage}
                    disabled={hdSearching}
                    className="flex items-center gap-2 px-3 py-1.5 text-slate-400 font-bold rounded-full text-[11px] hover:text-sky-500 hover:bg-sky-50 transition-all disabled:opacity-50"
                >
                    <ImagePlus size={12} />
-                   {hdSearching ? 'Searching...' : 'Retry HD'}
+                   {hdSearching ? 'Enhancing...' : 'Enhance 2x'}
                </button>
            </div>
         </div>
