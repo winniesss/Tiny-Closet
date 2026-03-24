@@ -420,7 +420,7 @@ Only return the product page URL, nothing else.`
     }
 
     // --- Step 2: Scrape product page via local server proxy ---
-    const apiBase = window.location.hostname === 'localhost' ? 'http://localhost:3001' : 'https://tiny-closet-api-201944482434.us-west1.run.app';
+    const apiBase = window.location.hostname === 'localhost' ? 'http://localhost:3001' : '';
     const scrapeRes = await fetch(`${apiBase}/api/scrape-image?url=${encodeURIComponent(sourceUrl)}`);
     const scrapeData = await scrapeRes.json();
 

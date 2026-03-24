@@ -347,6 +347,17 @@ process.on('SIGINT', async () => {
   process.exit(0);
 });
 
+// Serve frontend static files
+import path from 'path';
+import { fileURLToPath } from 'url';
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const distPath = path.join(__dirname, 'dist');
+
+app.use(express.static(distPath));
+app.get('*', (req, res) => {
+  res.sendFile(path.join(distPath, 'index.html'));
+});
+
 app.listen(PORT, () => {
-  console.log(`🖼️  Image scraper running at http://localhost:${PORT}`);
+  console.log(`🖼️  Tiny Closet running at http://localhost:${PORT}`);
 });
