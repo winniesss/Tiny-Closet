@@ -18,9 +18,9 @@ const AddAccountSheet: React.FC<{
   const [handle, setHandle] = useState('');
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col">
+    <div className="fixed inset-0 z-[100] flex flex-col">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative mt-auto bg-orange-50 rounded-t-[2rem] p-6 pb-10">
+      <div className="relative mt-auto bg-orange-50 rounded-t-[2rem] p-6 pb-[calc(2rem+env(safe-area-inset-bottom))]">
         <div className="w-10 h-1 bg-slate-300 rounded-full mx-auto mb-5" />
         <h2 className="font-serif font-bold text-lg text-slate-800 mb-1">Follow a Shop</h2>
         <p className="text-sm text-slate-400 font-bold mb-5">Enter an Instagram handle to follow their outfit posts.</p>
@@ -99,7 +99,7 @@ const PostDetailModal: React.FC<{
   const matchedCount = matches.filter(m => m.matchedClosetItemIds.length > 0).length;
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col">
+    <div className="fixed inset-0 z-[100] flex flex-col">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
       <div className="relative mt-auto bg-orange-50 rounded-t-[2rem] max-h-[90dvh] flex flex-col overflow-hidden">
         <div className="sticky top-0 bg-orange-50 rounded-t-[2rem] px-6 pt-5 pb-3 z-10">
