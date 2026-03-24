@@ -114,8 +114,9 @@ function imageScrapePlugin() {
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
+  const apiKey = env.API_KEY || process.env.API_KEY || '';
 
-  if (!env.API_KEY && mode !== 'production') {
+  if (!apiKey && mode !== 'production') {
     console.warn("\n\x1b[33m%s\x1b[0m\n", "⚠️  WARNING: API_KEY is missing. Please create a .env file in the root directory with API_KEY=your_key");
   }
 
@@ -127,7 +128,7 @@ export default defineConfig(({ mode }) => {
       sourcemap: true
     },
     define: {
-      'process.env.API_KEY': JSON.stringify(env.API_KEY)
+      'process.env.API_KEY': JSON.stringify(apiKey)
     }
   };
 });
