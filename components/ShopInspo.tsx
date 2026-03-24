@@ -18,40 +18,41 @@ const AddAccountSheet: React.FC<{
   const [handle, setHandle] = useState('');
 
   return (
-    <div className="fixed inset-0 z-[100] flex flex-col">
+    <div className="fixed inset-0 z-[100] flex items-start justify-center pt-[20vh]">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative mt-auto bg-orange-50 rounded-t-[2rem] p-6 pb-[calc(2rem+env(safe-area-inset-bottom))]">
-        <div className="w-10 h-1 bg-slate-300 rounded-full mx-auto mb-5" />
+      <div className="relative bg-white rounded-[2rem] p-6 mx-6 w-full max-w-sm shadow-2xl">
+        <button onClick={onClose} className="absolute top-4 right-4 p-1 text-slate-300">
+          <X size={18} />
+        </button>
         <h2 className="font-serif font-bold text-lg text-slate-800 mb-1">Follow a Shop</h2>
-        <p className="text-sm text-slate-400 font-bold mb-5">Enter an Instagram handle to follow their outfit posts.</p>
+        <p className="text-sm text-slate-400 font-bold mb-5">Enter an Instagram handle</p>
 
-        <div className="flex gap-2 mb-3">
-          <div className="flex-1 flex items-center bg-white rounded-xl border border-slate-200 px-4 py-3">
-            <span className="text-slate-400 font-bold mr-1">@</span>
-            <input
-              type="text"
-              value={handle}
-              onChange={(e) => setHandle(e.target.value.replace(/[@\s]/g, ''))}
-              placeholder="thefrontshop"
-              className="flex-1 bg-transparent outline-none text-slate-800 font-bold placeholder:text-slate-300"
-              autoFocus
-            />
-          </div>
-          <button
-            onClick={() => handle.trim() && onAdd(handle.trim())}
-            disabled={!handle.trim() || loading}
-            className={clsx(
-              "px-5 rounded-xl font-bold text-sm transition-all flex items-center gap-2",
-              loading ? "bg-slate-200 text-slate-400" : "bg-orange-400 text-white active:scale-95"
-            )}
-          >
-            {loading ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
-            {loading ? 'Fetching...' : 'Follow'}
-          </button>
+        <div className="flex items-center bg-slate-50 rounded-xl border border-slate-200 px-4 py-3 mb-3">
+          <span className="text-slate-400 font-bold mr-1">@</span>
+          <input
+            type="text"
+            value={handle}
+            onChange={(e) => setHandle(e.target.value.replace(/[@\s]/g, ''))}
+            placeholder="thefrontshop"
+            className="flex-1 bg-transparent outline-none text-slate-800 font-bold placeholder:text-slate-300"
+            autoFocus
+          />
         </div>
 
+        <button
+          onClick={() => handle.trim() && onAdd(handle.trim())}
+          disabled={!handle.trim() || loading}
+          className={clsx(
+            "w-full py-3.5 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2",
+            loading ? "bg-slate-200 text-slate-400" : "bg-orange-400 text-white active:scale-95"
+          )}
+        >
+          {loading ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
+          {loading ? 'Fetching posts...' : 'Follow'}
+        </button>
+
         {error && (
-          <p className="text-sm text-red-400 font-bold bg-red-50 rounded-xl px-4 py-2">{error}</p>
+          <p className="text-sm text-red-400 font-bold bg-red-50 rounded-xl px-4 py-2 mt-3">{error}</p>
         )}
       </div>
     </div>
