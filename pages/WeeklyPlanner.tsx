@@ -1,11 +1,11 @@
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
-import { ClothingItem, Category, WeeklyPlan } from '../types';
+import { ClothingItem, Category, WeeklyPlan, Season } from '../types';
 import { useActiveChild } from '../hooks/useActiveChild';
-import { ChevronLeft, ChevronRight, X, Check, Trash2, Plus, Calendar } from 'lucide-react';
+import { ChevronLeft, ChevronRight, X, Check, Trash2, Plus, Calendar, Clock, Sun, Leaf, Snowflake, CloudSun, Pencil } from 'lucide-react';
 import clsx from 'clsx';
 
 // --- Date Helpers ---
@@ -43,9 +43,9 @@ function formatWeekRange(monday: Date): string {
   const m1 = SHORT_MONTHS[monday.getMonth()];
   const m2 = SHORT_MONTHS[sunday.getMonth()];
   if (m1 === m2) {
-    return `${m1} ${monday.getDate()} – ${sunday.getDate()}`;
+    return `${m1} ${monday.getDate()} \u2013 ${sunday.getDate()}`;
   }
-  return `${m1} ${monday.getDate()} – ${m2} ${sunday.getDate()}`;
+  return `${m1} ${monday.getDate()} \u2013 ${m2} ${sunday.getDate()}`;
 }
 
 // --- Category Grouping ---
@@ -67,147 +67,208 @@ function groupByCategory(items: ClothingItem[]): { category: Category; items: Cl
     .map(cat => ({ category: cat, items: map.get(cat)! }));
 }
 
-// --- Flat-lay layout positions by category ---
-type LayoutSlot = { top: string; left: string; width: string; rotate: string; zIndex: number };
+// --- Quick Filter Types ---
+type FilterKey = 'All' | 'Recent' | 'Spring' | 'Summer' | 'Fall' | 'Winter';
 
-function getFlatLayPositions(items: ClothingItem[]): Map<number, LayoutSlot> {
-  const positions = new Map<number, LayoutSlot>();
+const FILTER_OPTIONS: { key: FilterKey; label: string; icon: React.FC<{ size?: number; className?: string }> }[] = [
+  { key: 'All', label: 'All', icon: ({ size, className }) => <Calendar size={size} className={className} /> },
+  { key: 'Recent', label: 'Recent', icon: ({ size, className }) => <Clock size={size} className={className} /> },
+  { key: 'Spring', label: 'Spring', icon: ({ size, className }) => <CloudSun size={size} className={className} /> },
+  { key: 'Summer', label: 'Summer', icon: ({ size, className }) => <Sun size={size} className={className} /> },
+  { key: 'Fall', label: 'Fall', icon: ({ size, className }) => <Leaf size={size} className={className} /> },
+  { key: 'Winter', label: 'Winter', icon: ({ size, className }) => <Snowflake size={size} className={className} /> },
+];
 
-  const tops: ClothingItem[] = [];
-  const bottoms: ClothingItem[] = [];
-  const fullBody: ClothingItem[] = [];
-  const shoes: ClothingItem[] = [];
-  const accessories: ClothingItem[] = [];
-  const layers: ClothingItem[] = [];
+const SEASON_MAP: Record<string, Season> = {
+  Spring: Season.Spring,
+  Summer: Season.Summer,
+  Fall: Season.Fall,
+  Winter: Season.Winter,
+};
 
-  items.forEach(item => {
-    switch (item.category) {
-      case Category.Top:
-        tops.push(item); break;
-      case Category.Bottom:
-      case Category.Tights:
-        bottoms.push(item); break;
-      case Category.FullBody:
-      case Category.Romper:
-      case Category.Overall:
-      case Category.Pajamas:
-      case Category.Swimwear:
-        fullBody.push(item); break;
-      case Category.Shoes:
-      case Category.Socks:
-        shoes.push(item); break;
-      case Category.Outerwear:
-      case Category.Vest:
-        layers.push(item); break;
-      case Category.Accessory:
-        accessories.push(item); break;
+// --- Position helpers ---
+type ItemPosition = { x: number; y: number };
+
+function loadPositions(dateKey: string): Map<number, ItemPosition> {
+  try {
+    const raw = localStorage.getItem(`plan_positions_${dateKey}`);
+    if (!raw) return new Map();
+    const parsed: Record<string, ItemPosition> = JSON.parse(raw);
+    const map = new Map<number, ItemPosition>();
+    for (const [k, v] of Object.entries(parsed)) {
+      map.set(Number(k), v);
     }
-  });
-
-  const hasFullBody = fullBody.length > 0;
-
-  // Full-body items: center, large
-  fullBody.forEach((item, i) => {
-    positions.set(item.id!, {
-      top: '5%', left: i === 0 ? '10%' : '35%',
-      width: '55%', rotate: `${-2 + i * 3}deg`, zIndex: 10 + i
-    });
-  });
-
-  // Tops: upper area
-  if (!hasFullBody) {
-    tops.forEach((item, i) => {
-      positions.set(item.id!, {
-        top: '2%', left: i === 0 ? '15%' : '45%',
-        width: i === 0 ? '50%' : '40%', rotate: `${-3 + i * 5}deg`, zIndex: 10 + i
-      });
-    });
-  } else {
-    tops.forEach((item, i) => {
-      positions.set(item.id!, {
-        top: '0%', left: '50%',
-        width: '38%', rotate: `${4 + i * 2}deg`, zIndex: 20 + i
-      });
-    });
+    return map;
+  } catch {
+    return new Map();
   }
-
-  // Bottoms: lower center
-  if (!hasFullBody) {
-    bottoms.forEach((item, i) => {
-      positions.set(item.id!, {
-        top: '38%', left: i === 0 ? '20%' : '48%',
-        width: i === 0 ? '50%' : '38%', rotate: `${3 - i * 4}deg`, zIndex: 15 + i
-      });
-    });
-  } else {
-    bottoms.forEach((item, i) => {
-      positions.set(item.id!, {
-        top: '50%', left: '55%',
-        width: '35%', rotate: `${-3 + i * 3}deg`, zIndex: 15 + i
-      });
-    });
-  }
-
-  // Shoes: bottom area
-  shoes.forEach((item, i) => {
-    positions.set(item.id!, {
-      top: '68%', left: i === 0 ? '5%' : '55%',
-      width: '28%', rotate: `${-8 + i * 15}deg`, zIndex: 20 + i
-    });
-  });
-
-  // Layers: offset to the side
-  layers.forEach((item, i) => {
-    positions.set(item.id!, {
-      top: '10%', left: i === 0 ? '55%' : '60%',
-      width: '40%', rotate: `${5 + i * 3}deg`, zIndex: 5 + i
-    });
-  });
-
-  // Accessories: scattered
-  const accSlots: LayoutSlot[] = [
-    { top: '5%', left: '65%', width: '28%', rotate: '6deg', zIndex: 25 },
-    { top: '55%', left: '60%', width: '25%', rotate: '-4deg', zIndex: 25 },
-    { top: '72%', left: '40%', width: '22%', rotate: '8deg', zIndex: 26 },
-  ];
-  accessories.forEach((item, i) => {
-    const slot = accSlots[i % accSlots.length];
-    positions.set(item.id!, slot);
-  });
-
-  return positions;
 }
 
-// --- Flat-lay Outfit Card ---
-const FlatLayCard: React.FC<{ itemIds: number[]; itemMap: Map<number, ClothingItem> }> = ({ itemIds, itemMap }) => {
+function savePositions(dateKey: string, positions: Map<number, ItemPosition>) {
+  const obj: Record<string, ItemPosition> = {};
+  positions.forEach((v, k) => { obj[String(k)] = v; });
+  localStorage.setItem(`plan_positions_${dateKey}`, JSON.stringify(obj));
+}
+
+function getDefaultPositions(itemIds: number[]): Map<number, ItemPosition> {
+  const map = new Map<number, ItemPosition>();
+  const cols = 3;
+  itemIds.forEach((id, i) => {
+    const row = Math.floor(i / cols);
+    const col = i % cols;
+    map.set(id, {
+      x: 5 + col * 33,
+      y: 5 + row * 30,
+    });
+  });
+  return map;
+}
+
+// --- Draggable Canvas Card ---
+const DraggableCanvasCard: React.FC<{
+  itemIds: number[];
+  itemMap: Map<number, ClothingItem>;
+  dateKey: string;
+}> = ({ itemIds, itemMap, dateKey }) => {
+  const [editing, setEditing] = useState(false);
+  const [positions, setPositions] = useState<Map<number, ItemPosition>>(() => {
+    const saved = loadPositions(dateKey);
+    if (saved.size > 0) return saved;
+    return getDefaultPositions(itemIds);
+  });
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const dragState = useRef<{ id: number; startX: number; startY: number; origPos: ItemPosition } | null>(null);
+
+  // Sync positions when itemIds change
+  useEffect(() => {
+    const saved = loadPositions(dateKey);
+    if (saved.size > 0) {
+      // Add default positions for any new items not in saved
+      const merged = new Map(saved);
+      const existingCount = merged.size;
+      itemIds.forEach((id, i) => {
+        if (!merged.has(id)) {
+          const cols = 3;
+          const idx = existingCount + i;
+          const row = Math.floor(idx / cols);
+          const col = idx % cols;
+          merged.set(id, { x: 5 + col * 33, y: 5 + row * 30 });
+        }
+      });
+      setPositions(merged);
+    } else {
+      setPositions(getDefaultPositions(itemIds));
+    }
+  }, [dateKey, itemIds]);
+
+  const handlePointerDown = useCallback((e: React.PointerEvent, id: number) => {
+    if (!editing) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const pos = positions.get(id) || { x: 0, y: 0 };
+    dragState.current = { id, startX: e.clientX, startY: e.clientY, origPos: { ...pos } };
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+  }, [editing, positions]);
+
+  const handlePointerMove = useCallback((e: React.PointerEvent) => {
+    if (!dragState.current || !canvasRef.current) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = canvasRef.current.getBoundingClientRect();
+    const dx = ((e.clientX - dragState.current.startX) / rect.width) * 100;
+    const dy = ((e.clientY - dragState.current.startY) / rect.height) * 100;
+    const newX = Math.max(0, Math.min(70, dragState.current.origPos.x + dx));
+    const newY = Math.max(0, Math.min(70, dragState.current.origPos.y + dy));
+    setPositions(prev => {
+      const next = new Map(prev);
+      next.set(dragState.current!.id, { x: newX, y: newY });
+      return next;
+    });
+  }, []);
+
+  const handlePointerUp = useCallback(() => {
+    if (dragState.current) {
+      dragState.current = null;
+      // Save positions on drop
+      setPositions(prev => {
+        savePositions(dateKey, prev);
+        return prev;
+      });
+    }
+  }, [dateKey]);
+
+  const toggleEdit = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (editing) {
+      // Exiting edit mode - save
+      savePositions(dateKey, positions);
+    }
+    setEditing(prev => !prev);
+  }, [editing, dateKey, positions]);
+
   const outfitItems = itemIds.map(id => itemMap.get(id)).filter(Boolean) as ClothingItem[];
-  const positions = getFlatLayPositions(outfitItems);
 
   return (
-    <div className="relative w-full aspect-[4/5] bg-white rounded-2xl overflow-hidden">
-      {outfitItems.map(item => {
-        const pos = positions.get(item.id!);
-        if (!pos) return null;
-        return (
-          <div
-            key={item.id}
-            className="absolute transition-transform duration-300"
-            style={{
-              top: pos.top,
-              left: pos.left,
-              width: pos.width,
-              transform: `rotate(${pos.rotate})`,
-              zIndex: pos.zIndex,
-            }}
-          >
-            <img
-              src={item.image}
-              alt={item.category}
-              className="w-full h-auto object-contain drop-shadow-md"
-            />
+    <div className="relative">
+      {/* Edit toggle button */}
+      <button
+        onClick={toggleEdit}
+        className={clsx(
+          "absolute top-2 right-2 z-20 w-8 h-8 rounded-full flex items-center justify-center shadow-sm transition-colors",
+          editing
+            ? "bg-orange-400 text-white"
+            : "bg-white/80 text-slate-400 border border-slate-200"
+        )}
+      >
+        <Pencil size={14} />
+      </button>
+
+      <div
+        ref={canvasRef}
+        className={clsx(
+          "relative w-full aspect-[4/5] bg-white rounded-2xl overflow-hidden",
+          editing && "ring-2 ring-orange-300"
+        )}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+      >
+        {outfitItems.map(item => {
+          const pos = positions.get(item.id!) || { x: 0, y: 0 };
+          return (
+            <div
+              key={item.id}
+              className={clsx(
+                "absolute w-[30%] touch-none",
+                editing && "cursor-grab active:cursor-grabbing"
+              )}
+              style={{
+                left: `${pos.x}%`,
+                top: `${pos.y}%`,
+                zIndex: editing ? 10 : 1,
+              }}
+              onPointerDown={(e) => handlePointerDown(e, item.id!)}
+            >
+              <img
+                src={item.image}
+                alt={item.category}
+                className={clsx(
+                  "w-full h-auto object-contain drop-shadow-md pointer-events-none",
+                  editing && "ring-2 ring-orange-200 rounded-lg"
+                )}
+                draggable={false}
+              />
+            </div>
+          );
+        })}
+
+        {editing && (
+          <div className="absolute bottom-2 left-0 right-0 text-center">
+            <span className="text-[10px] font-bold text-slate-300 bg-white/70 px-2 py-0.5 rounded-full">
+              Drag items to reposition
+            </span>
           </div>
-        );
-      })}
+        )}
+      </div>
     </div>
   );
 };
@@ -219,6 +280,7 @@ export const WeeklyPlanner: React.FC = () => {
   const [weekOffset, setWeekOffset] = useState(0);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [pendingItemIds, setPendingItemIds] = useState<number[]>([]);
+  const [activeFilter, setActiveFilter] = useState<FilterKey>('All');
 
   // Compute current week
   const monday = useMemo(() => {
@@ -269,16 +331,37 @@ export const WeeklyPlanner: React.FC = () => {
     return m;
   }, [allItems]);
 
+  // --- Filtered items for builder modal ---
+  const filteredItems = useMemo(() => {
+    if (activeFilter === 'All') return null; // null means use grouped view
+    if (activeFilter === 'Recent') {
+      const fourteenDaysAgo = Date.now() - 14 * 24 * 60 * 60 * 1000;
+      return [...allItems]
+        .filter(item => item.dateAdded >= fourteenDaysAgo)
+        .sort((a, b) => b.dateAdded - a.dateAdded);
+    }
+    // Season filters
+    const season = SEASON_MAP[activeFilter];
+    if (season) {
+      return allItems.filter(item =>
+        item.seasons?.includes(season) || item.seasons?.includes(Season.All)
+      );
+    }
+    return null;
+  }, [activeFilter, allItems]);
+
   // --- Handlers ---
   const openBuilder = useCallback((dateKey: string) => {
     const existing = planMap.get(dateKey);
     setPendingItemIds(existing?.itemIds || []);
     setSelectedDate(dateKey);
+    setActiveFilter('All');
   }, [planMap]);
 
   const closeBuilder = useCallback(() => {
     setSelectedDate(null);
     setPendingItemIds([]);
+    setActiveFilter('All');
   }, []);
 
   const toggleItem = useCallback((id: number) => {
@@ -293,6 +376,7 @@ export const WeeklyPlanner: React.FC = () => {
     if (pendingItemIds.length === 0) {
       if (existing?.id) {
         await db.weeklyPlans.delete(existing.id);
+        localStorage.removeItem(`plan_positions_${selectedDate}`);
       }
     } else if (existing?.id) {
       await db.weeklyPlans.update(existing.id, { itemIds: pendingItemIds });
@@ -309,6 +393,34 @@ export const WeeklyPlanner: React.FC = () => {
   const clearPlan = useCallback(() => {
     setPendingItemIds([]);
   }, []);
+
+  // --- Render item grid cell (shared between grouped and flat views) ---
+  const renderItemCell = useCallback((item: ClothingItem) => {
+    const isSelected = pendingItemIds.includes(item.id!);
+    return (
+      <div
+        key={item.id}
+        onClick={() => toggleItem(item.id!)}
+        className={clsx(
+          "relative aspect-square rounded-xl overflow-hidden cursor-pointer border-2 transition-all active:scale-95",
+          isSelected
+            ? "border-orange-400 ring-2 ring-orange-200 shadow-md"
+            : "border-slate-100 hover:border-slate-200"
+        )}
+      >
+        <img
+          src={item.image}
+          alt={item.category}
+          className="w-full h-full object-cover"
+        />
+        {isSelected && (
+          <div className="absolute top-1 right-1 w-6 h-6 bg-orange-400 rounded-full flex items-center justify-center shadow-sm">
+            <Check size={14} className="text-white" strokeWidth={3} />
+          </div>
+        )}
+      </div>
+    );
+  }, [pendingItemIds, toggleItem]);
 
   return (
     <div className="min-h-full bg-orange-50">
@@ -352,7 +464,7 @@ export const WeeklyPlanner: React.FC = () => {
         </div>
       </div>
 
-      {/* Day Cards — Flat-lay style */}
+      {/* Day Cards */}
       <div className="px-6 pb-8 space-y-4">
         {weekDays.map((day) => {
           const dateKey = formatDateKey(day);
@@ -363,17 +475,16 @@ export const WeeklyPlanner: React.FC = () => {
           return (
             <div
               key={dateKey}
-              onClick={() => openBuilder(dateKey)}
               className={clsx(
-                "rounded-[1.5rem] overflow-hidden shadow-sm border cursor-pointer active:scale-[0.98] transition-all duration-200",
+                "rounded-[1.5rem] overflow-hidden shadow-sm border transition-all duration-200",
                 isToday ? "border-orange-300 ring-2 ring-orange-200" : "border-slate-100"
               )}
             >
               {/* Day label bar */}
-              <div className={clsx(
-                "flex items-center justify-between px-4 py-3",
-                hasOutfit ? "bg-white" : "bg-white"
-              )}>
+              <div
+                onClick={() => openBuilder(dateKey)}
+                className="flex items-center justify-between px-4 py-3 bg-white cursor-pointer active:scale-[0.98] transition-transform"
+              >
                 <div className="flex items-center gap-2">
                   <span className="font-serif font-bold text-slate-800">
                     {SHORT_DAY[day.getDay()]}
@@ -390,11 +501,20 @@ export const WeeklyPlanner: React.FC = () => {
                 <ChevronRight size={16} className="text-slate-300" />
               </div>
 
-              {/* Outfit flat-lay or empty state */}
+              {/* Outfit canvas or empty state */}
               {hasOutfit ? (
-                <FlatLayCard itemIds={plan.itemIds} itemMap={itemMap} />
+                <div className="px-2 pb-2">
+                  <DraggableCanvasCard
+                    itemIds={plan.itemIds}
+                    itemMap={itemMap}
+                    dateKey={dateKey}
+                  />
+                </div>
               ) : (
-                <div className="bg-white px-4 pb-4">
+                <div
+                  className="bg-white px-4 pb-4 cursor-pointer active:scale-[0.98] transition-transform"
+                  onClick={() => openBuilder(dateKey)}
+                >
                   <div className="flex items-center gap-3 py-4 border-t border-dashed border-slate-100">
                     <div className="w-12 h-12 rounded-xl border-2 border-dashed border-slate-200 flex items-center justify-center">
                       <Plus size={18} className="text-slate-300" />
@@ -473,46 +593,58 @@ export const WeeklyPlanner: React.FC = () => {
               </div>
             )}
 
-            {/* Item Grid by Category */}
+            {/* Quick Filter Bar */}
+            <div className="px-6 pb-3">
+              <div className="flex gap-2 overflow-x-auto no-scrollbar py-1">
+                {FILTER_OPTIONS.map(({ key, label, icon: Icon }) => {
+                  const isActive = activeFilter === key;
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => setActiveFilter(key)}
+                      className={clsx(
+                        "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap shrink-0 transition-colors",
+                        isActive
+                          ? "bg-orange-400 text-white"
+                          : "bg-white text-slate-500 border border-slate-200"
+                      )}
+                    >
+                      <Icon size={14} className={isActive ? "text-white" : "text-slate-400"} />
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Item Grid */}
             <div className="overflow-y-auto flex-1 px-6 pb-8">
               {allItems.length === 0 ? (
                 <div className="text-center py-12">
                   <p className="text-slate-400 font-bold">No items in closet yet.</p>
                   <p className="text-sm text-slate-300 mt-1">Add some clothes first!</p>
                 </div>
+              ) : filteredItems !== null ? (
+                /* Flat grid for filtered view */
+                filteredItems.length === 0 ? (
+                  <div className="text-center py-12">
+                    <p className="text-slate-400 font-bold">No items match this filter.</p>
+                    <p className="text-sm text-slate-300 mt-1">Try a different filter.</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-4 gap-2">
+                    {filteredItems.map(item => renderItemCell(item))}
+                  </div>
+                )
               ) : (
+                /* Category-grouped view (default / "All") */
                 grouped.map(({ category, items }) => (
                   <div key={category} className="mb-5">
                     <h3 className="text-sm font-bold text-slate-500 mb-2 uppercase tracking-wide">
                       {category}
                     </h3>
                     <div className="grid grid-cols-4 gap-2">
-                      {items.map(item => {
-                        const isSelected = pendingItemIds.includes(item.id!);
-                        return (
-                          <div
-                            key={item.id}
-                            onClick={() => toggleItem(item.id!)}
-                            className={clsx(
-                              "relative aspect-square rounded-xl overflow-hidden cursor-pointer border-2 transition-all active:scale-95",
-                              isSelected
-                                ? "border-orange-400 ring-2 ring-orange-200 shadow-md"
-                                : "border-slate-100 hover:border-slate-200"
-                            )}
-                          >
-                            <img
-                              src={item.image}
-                              alt={item.category}
-                              className="w-full h-full object-cover"
-                            />
-                            {isSelected && (
-                              <div className="absolute top-1 right-1 w-6 h-6 bg-orange-400 rounded-full flex items-center justify-center shadow-sm">
-                                <Check size={14} className="text-white" strokeWidth={3} />
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
+                      {items.map(item => renderItemCell(item))}
                     </div>
                   </div>
                 ))

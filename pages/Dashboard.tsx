@@ -97,7 +97,7 @@ const parseSizeToMaxMonths = (size: string | undefined): number | null => {
 export const Dashboard: React.FC = () => {
   const [suggestion1, setSuggestion1] = useState<ClothingItem[]>([]);
   const [suggestion2, setSuggestion2] = useState<ClothingItem[]>([]);
-  const [activeTab, setActiveTab] = useState<'foryou' | 'inspo'>('foryou');
+  const [activeTab, setActiveTab] = useState<'foryou' | 'inspo' | 'planned'>('foryou');
   const [notification, setNotification] = useState<string | null>(null);
   const [selectedItem, setSelectedItem] = useState<ClothingItem | null>(null);
   
@@ -518,7 +518,7 @@ export const Dashboard: React.FC = () => {
       if (itemIds.length > 0) {
           await db.outfitLikes.add({
               itemIds,
-              style: activeTab === 'inspo' ? 'chic' : 'playful',
+              style: activeTab === 'foryou' ? 'playful' : 'chic',
               date: Date.now(),
               profileId: activeChildId ?? undefined
           });
@@ -654,6 +654,14 @@ export const Dashboard: React.FC = () => {
                   >
                       For You
                   </button>
+                  {todayPlan && todayPlanItems && todayPlanItems.length > 0 && (
+                    <button
+                      onClick={() => { setActiveTab('planned'); setIsLiked(false); }}
+                      className={`text-lg font-serif font-bold transition-colors ${activeTab === 'planned' ? 'text-slate-800 underline decoration-sky-400 decoration-4 underline-offset-4' : 'text-slate-300 hover:text-slate-500'}`}
+                    >
+                        Planned
+                    </button>
+                  )}
                   {inspoData && (
                     <button
                       onClick={() => { setActiveTab('inspo'); setIsLiked(false); }}
@@ -665,7 +673,63 @@ export const Dashboard: React.FC = () => {
               </div>
          </div>
         
-        {activeTab === 'inspo' && inspoData ? (
+        {activeTab === 'planned' && todayPlan && todayPlanItems && todayPlanItems.length > 0 ? (
+          <div className="animate-in fade-in slide-in-from-bottom-2 duration-500">
+            <div className="relative bg-white rounded-xl shadow-lg border border-slate-100 p-4 pb-8 overflow-hidden min-h-[320px]">
+              <div className="relative">
+                {todayPlanItems.map((item, idx) => {
+                  let posClass = "";
+                  let rotateClass = "";
+                  let zIndex = 10;
+                  let badgePos = "";
+                  if (idx === 0) {
+                    posClass = "w-3/5 ml-auto mr-6";
+                    rotateClass = "rotate-[-2deg]";
+                    zIndex = 20;
+                    badgePos = "-top-3 -left-3";
+                  } else if (idx === 1) {
+                    posClass = "w-3/5 -mt-12 ml-6";
+                    rotateClass = "rotate-[3deg]";
+                    zIndex = 30;
+                    badgePos = "-top-2 -right-2";
+                  } else if (idx === 2) {
+                    posClass = "w-2/5 ml-auto -mt-8 mr-4";
+                    rotateClass = "rotate-[-4deg]";
+                    zIndex = 40;
+                    badgePos = "-bottom-2 -left-2";
+                  } else {
+                    posClass = "w-1/3 absolute bottom-4 left-8";
+                    rotateClass = "rotate-[6deg]";
+                    zIndex = 50;
+                    badgePos = "-top-2 left-1/2";
+                  }
+                  return (
+                    <div
+                      key={`${item.id}-${idx}`}
+                      onClick={() => setSelectedItem(item)}
+                      className={`relative group cursor-pointer ${posClass} ${rotateClass}`}
+                      style={{ zIndex }}
+                    >
+                      <div className="bg-white p-1 shadow-md border border-slate-100 rounded-lg">
+                        <img src={item.image} alt={item.category} className="w-full h-auto object-cover rounded-md" />
+                      </div>
+                      <div className={`absolute ${badgePos} w-8 h-8 rounded-full bg-sky-500 text-white flex items-center justify-center font-serif font-bold text-xs shadow-md border-2 border-white`}>
+                        {idx + 1}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="absolute bottom-3 left-4 flex items-center gap-1.5">
+                <Calendar size={14} className="text-sky-400" />
+                <span className="text-xs font-bold text-slate-400">Today's Plan</span>
+              </div>
+              <Link to="/plan" className="absolute bottom-3 right-4 text-xs font-bold text-sky-500 flex items-center gap-1">
+                Edit <ArrowRight size={12} />
+              </Link>
+            </div>
+          </div>
+        ) : activeTab === 'inspo' && inspoData ? (
           <div className="animate-in fade-in slide-in-from-bottom-2 duration-500">
             <div className="bg-white rounded-xl shadow-lg border border-slate-100 overflow-hidden">
               {/* Shop reference + matching items side by side */}
@@ -821,50 +885,22 @@ export const Dashboard: React.FC = () => {
         )}
       </section>
 
-      {/* Today's Plan Section */}
-      <section className="mb-8 animate-in fade-in slide-in-from-bottom-2 duration-500">
-        {todayPlan && todayPlanItems && todayPlanItems.length > 0 ? (
-          <Link to="/plan" className="block">
-            <div className="bg-white rounded-[2rem] p-5 shadow-sm border border-slate-100 hover:shadow-md transition-shadow">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <div className="bg-orange-100 p-2 rounded-xl text-orange-400">
-                    <Calendar size={18} />
-                  </div>
-                  <h2 className="font-serif font-bold text-slate-800">Today's Plan</h2>
-                </div>
-                <span className="text-xs font-bold text-orange-400 flex items-center gap-1">
-                  View Week <ArrowRight size={12} />
-                </span>
+      {/* Plan Your Week Link */}
+      <section className="mb-8">
+        <Link to="/plan" className="block">
+          <div className="bg-white rounded-[2rem] p-5 shadow-sm border border-dashed border-orange-200 hover:border-orange-300 hover:shadow-md transition-all">
+            <div className="flex items-center gap-4">
+              <div className="bg-orange-100 p-3 rounded-2xl text-orange-400 shrink-0">
+                <Calendar size={24} />
               </div>
-              <div className="flex gap-2 overflow-x-auto no-scrollbar">
-                {todayPlanItems.map(item => (
-                  <div
-                    key={item.id}
-                    className="w-16 h-16 shrink-0 rounded-xl bg-orange-50 overflow-hidden border border-slate-100"
-                  >
-                    <img src={item.image} alt={item.category} className="w-full h-full object-cover" />
-                  </div>
-                ))}
+              <div className="flex-1">
+                <h3 className="font-serif font-bold text-slate-800 mb-0.5">Plan Your Week</h3>
+                <p className="text-sm text-slate-400 font-bold">Pick outfits for the days ahead</p>
               </div>
+              <ArrowRight size={18} className="text-orange-300" />
             </div>
-          </Link>
-        ) : (
-          <Link to="/plan" className="block">
-            <div className="bg-white rounded-[2rem] p-5 shadow-sm border border-dashed border-orange-200 hover:border-orange-300 hover:shadow-md transition-all">
-              <div className="flex items-center gap-4">
-                <div className="bg-orange-100 p-3 rounded-2xl text-orange-400 shrink-0">
-                  <Calendar size={24} />
-                </div>
-                <div className="flex-1">
-                  <h3 className="font-serif font-bold text-slate-800 mb-0.5">Plan Your Week</h3>
-                  <p className="text-sm text-slate-400 font-bold">Pick outfits for the days ahead</p>
-                </div>
-                <ArrowRight size={18} className="text-orange-300" />
-              </div>
-            </div>
-          </Link>
-        )}
+          </div>
+        </Link>
       </section>
 
       {/* Outgrown Alert Section */}
