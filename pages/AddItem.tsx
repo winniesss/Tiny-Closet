@@ -500,36 +500,39 @@ export const AddItem: React.FC = () => {
       }
   };
 
-  // HD Upscale
+  // HD Image Search
   const [hdPreviewUrl, setHdPreviewUrl] = useState<string | null>(null);
   const [hdSourceUrl, setHdSourceUrl] = useState<string | null>(null);
 
-  const upscaleImage = (base64: string, scale: number = 2): Promise<string> => {
-    return new Promise((resolve) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        canvas.width = img.naturalWidth * scale;
-        canvas.height = img.naturalHeight * scale;
-        const ctx = canvas.getContext('2d')!;
-        ctx.imageSmoothingEnabled = true;
-        ctx.imageSmoothingQuality = 'high';
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL('image/jpeg', 0.92));
-      };
-      img.src = base64;
-    });
-  };
-
-  const handleUpscaleImage = async () => {
+  const handleFindHDImage = async () => {
     const current = reviewItems[currentIndex];
-    if (!current?.image) return;
+    if (!current) return;
+
+    // Build search query — use all available info for best results
+    const queryParts = [
+      current.brand && current.brand !== 'Unknown' ? current.brand : '',
+      current.description,
+      current.color,
+      current.category,
+    ].filter(Boolean);
+    const query = queryParts.join(' ');
+
     setHdSearching(true);
+    setHdSearchError(null);
+    setHdPreviewUrl(null);
+    setHdSourceUrl(null);
+
     try {
-      const upscaled = await upscaleImage(current.image);
-      handleUpdateCurrentItem('image', upscaled);
+      const result = await findBetterItemImage(query, current.image);
+      if (result.success && result.data?.imageUrl) {
+        setHdPreviewUrl(result.data.imageUrl);
+        setHdSourceUrl(result.data.sourceUrl);
+      } else {
+        setHdSearchError(result.error || 'Product not found online');
+      }
     } catch (e) {
-      console.error('Upscale failed', e);
+      console.error('HD image search failed', e);
+      setHdSearchError('Search failed. Try again.');
     } finally {
       setHdSearching(false);
     }
@@ -953,24 +956,32 @@ export const AddItem: React.FC = () => {
                     </div>
                 )}
 
-                {/* Upscale Loading Overlay */}
-                {hdSearching && (
-                    <div className="absolute inset-0 bg-white/50 backdrop-blur-sm flex items-center justify-center z-40">
-                         <Loader2 className="animate-spin text-sky-500" size={32} />
+                {/* HD Preview Overlay */}
+                {hdPreviewUrl && (
+                    <div className="absolute inset-0 bg-white flex flex-col items-center justify-center z-40 p-4 gap-3">
+                         <p className="text-xs font-bold text-green-600">HD Image Found!</p>
+                         <img src={hdPreviewUrl} alt="HD" className="max-w-full max-h-[55%] object-contain rounded-xl shadow-md" />
+                         <div className="flex gap-3">
+                             <button onClick={handleDismissHDPreview} className="px-5 py-2.5 bg-slate-100 text-slate-600 font-bold rounded-full text-sm">Keep Original</button>
+                             <button onClick={handleUseHDImage} className="px-5 py-2.5 bg-sky-400 text-white font-bold rounded-full text-sm shadow-md">Use HD</button>
+                         </div>
                     </div>
                 )}
            </div>
 
-           {/* Upscale button */}
+           {/* HD search button */}
            <div className="mt-3 flex items-center justify-center gap-2">
                <button
-                   onClick={handleUpscaleImage}
+                   onClick={handleFindHDImage}
                    disabled={hdSearching}
                    className="flex items-center gap-2 px-3 py-1.5 text-slate-400 font-bold rounded-full text-[11px] hover:text-sky-500 hover:bg-sky-50 transition-all disabled:opacity-50"
                >
                    <ImagePlus size={12} />
-                   {hdSearching ? 'Enhancing...' : 'Enhance 2x'}
+                   {hdSearching ? 'Searching...' : 'Find HD'}
                </button>
+               {hdSearchError && (
+                   <span className="text-[10px] text-red-400 font-bold">{hdSearchError}</span>
+               )}
            </div>
         </div>
 
