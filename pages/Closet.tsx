@@ -357,10 +357,10 @@ export const Closet: React.FC = () => {
   }
 
   return (
-    <div className={clsx("p-6 max-w-md mx-auto min-h-screen bg-orange-50", isSelectMode ? "pb-44" : "pb-4")}>
-      
+    <div className={clsx("max-w-md mx-auto min-h-screen bg-orange-50", isSelectMode ? "pb-44" : "pb-4")}>
+
       {activeTab !== 'Archive' ? (
-        <div className="flex items-center gap-3 mb-6 sticky -top-1 z-40 bg-orange-50 pt-1 pb-3 -mx-6 px-6 -mt-6 border-b border-orange-100/50">
+        <div className="flex items-center gap-3 mb-6 sticky top-0 z-40 bg-orange-50 pt-6 pb-3 px-6 shadow-[0_2px_8px_-2px_rgba(0,0,0,0.05)]">
             <div className="flex-1 flex bg-white p-1.5 rounded-2xl shadow-sm border border-slate-100">
                 <button
                     onClick={() => { exitSelectMode(); setActiveTab('Closet'); }}
@@ -400,7 +400,7 @@ export const Closet: React.FC = () => {
             </button>
         </div>
       ) : (
-         <div className="flex justify-between items-center mb-6 sticky top-2 z-40 bg-orange-50/95 backdrop-blur py-2">
+         <div className="flex justify-between items-center mb-6 sticky top-0 z-40 bg-orange-50 pt-6 pb-3 px-6">
               <div className="flex items-center gap-2">
                    <button
                         onClick={() => { exitSelectMode(); setActiveTab('Closet'); }}
@@ -436,11 +436,11 @@ export const Closet: React.FC = () => {
       )}
 
       {activeTab === 'Inspo' ? (
-        <div className="animate-in fade-in slide-in-from-bottom-2">
+        <div className="animate-in fade-in slide-in-from-bottom-2 px-6">
           <ShopInspo />
         </div>
       ) : activeTab === 'Lookbook' ? (
-        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2">
+        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 px-6">
              <div className="flex justify-between items-baseline mb-2">
                 <h1 className="text-3xl text-slate-800 font-serif">Saved Looks</h1>
                 <span className="text-sm font-bold text-slate-400">{outfits?.length || 0} Outfits</span>
@@ -505,7 +505,7 @@ export const Closet: React.FC = () => {
              )}
         </div>
       ) : (
-        <div className="animate-in fade-in slide-in-from-bottom-2">
+        <div className="animate-in fade-in slide-in-from-bottom-2 px-6">
             
             {activeTab !== 'Archive' && (
                 <div className="flex justify-between items-center mb-6">

@@ -82,13 +82,13 @@ export const AddItem: React.FC = () => {
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
-    if (e.target) e.target.value = '';
 
-    // Read all files
+    // Read all files BEFORE clearing input
     const allBase64: string[] = [];
     for (let i = 0; i < files.length; i++) {
       allBase64.push(await readFileAsBase64(files[i]));
     }
+    if (e.target) e.target.value = '';
 
     if (allBase64.length === 1) {
       // Single file — normal preview flow
@@ -100,6 +100,7 @@ export const AddItem: React.FC = () => {
     } else {
       // Multiple files — batch analyze all at once
       setOriginalImage(allBase64[0]);
+      setImagePreview(allBase64[0]);
       setPendingFiles([]);
       setStep('analyzing');
       setAnalysisError(null);
