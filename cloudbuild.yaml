@@ -5,26 +5,23 @@ steps:
       - '--build-arg'
       - 'API_KEY=$_API_KEY'
       - '-t'
-      - '$_GCR_HOSTNAME/$PROJECT_ID/$REPO_NAME/$_SERVICE_NAME:$COMMIT_SHA'
+      - 'us-west1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/tiny-closet-api:latest'
       - '.'
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'push'
-      - '$_GCR_HOSTNAME/$PROJECT_ID/$REPO_NAME/$_SERVICE_NAME:$COMMIT_SHA'
+      - 'us-west1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/tiny-closet-api:latest'
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk:slim'
     args:
       - 'run'
       - 'services'
       - 'update'
-      - '$_SERVICE_NAME'
+      - 'tiny-closet-api'
       - '--platform=managed'
-      - '--image=$_GCR_HOSTNAME/$PROJECT_ID/$REPO_NAME/$_SERVICE_NAME:$COMMIT_SHA'
-      - '--region=$_DEPLOY_REGION'
+      - '--image=us-west1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/tiny-closet-api:latest'
+      - '--region=us-west1'
     entrypoint: gcloud
 substitutions:
-  _GCR_HOSTNAME: us-west1-docker.pkg.dev
-  _SERVICE_NAME: tiny-closet-api
-  _DEPLOY_REGION: us-west1
   _API_KEY: ''
 images:
-  - '$_GCR_HOSTNAME/$PROJECT_ID/$REPO_NAME/$_SERVICE_NAME:$COMMIT_SHA'
+  - 'us-west1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/tiny-closet-api:latest'
