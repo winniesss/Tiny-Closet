@@ -48,6 +48,9 @@ export const AddItem: React.FC = () => {
   
   // Recrop State
   const [recropIndex, setRecropIndex] = useState<number | null>(null);
+
+  // Multi-file queue
+  const [pendingFiles, setPendingFiles] = useState<string[]>([]);
   
   // Refine/Rescan Menu State
   const [rescanMenuOpen, setRescanMenuOpen] = useState(false);
@@ -69,20 +72,30 @@ export const AddItem: React.FC = () => {
     setHdSearching(false);
   }, [currentIndex]);
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const readFileAsBase64 = (file: File): Promise<string> =>
+    new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.readAsDataURL(file);
+    });
 
-    const reader = new FileReader();
-    reader.onloadend = async () => {
-      const base64 = reader.result as string;
-      setOriginalImage(base64);
-      setLastAnalysisImage(null);
-      setStep('preview');
-      setRecropIndex(null);
-      if (e.target) e.target.value = '';
-    };
-    reader.readAsDataURL(file);
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    // Read all files
+    const allBase64: string[] = [];
+    for (let i = 0; i < files.length; i++) {
+      allBase64.push(await readFileAsBase64(files[i]));
+    }
+
+    // Load first image, queue the rest
+    setOriginalImage(allBase64[0]);
+    setLastAnalysisImage(null);
+    setStep('preview');
+    setRecropIndex(null);
+    setPendingFiles(allBase64.slice(1));
+    if (e.target) e.target.value = '';
   };
 
   const applyAspectRatio = (mode: CropMode) => {
@@ -507,12 +520,24 @@ export const AddItem: React.FC = () => {
   const handleSaveAll = async () => {
     const validItems = reviewItems.filter(i => i.category && i.image) as ClothingItem[];
     if (validItems.length > 0) {
-      // Attach the active child's profileId to each item
       const itemsWithProfile = validItems.map(item => ({
         ...item,
         profileId: activeChildId ?? undefined
       }));
       await db.items.bulkAdd(itemsWithProfile);
+
+      // If more files in queue, load next
+      if (pendingFiles.length > 0) {
+        const [next, ...rest] = pendingFiles;
+        setOriginalImage(next);
+        setLastAnalysisImage(null);
+        setStep('preview');
+        setRecropIndex(null);
+        setReviewItems([]);
+        setCurrentIndex(0);
+        setPendingFiles(rest);
+        return;
+      }
       navigate('/closet');
     } else {
       alert("Please ensure items have a category.");
@@ -549,12 +574,13 @@ export const AddItem: React.FC = () => {
             className="hidden" 
           />
           
-          <input 
-            type="file" 
-            ref={fileInputRef} 
-            onChange={handleFileChange} 
-            accept="image/*" 
-            className="hidden" 
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileChange}
+            accept="image/*"
+            multiple
+            className="hidden"
           />
           
           <div className="w-full max-w-xs space-y-4">
