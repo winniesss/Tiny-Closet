@@ -360,7 +360,7 @@ export const Closet: React.FC = () => {
     <div className={clsx("p-6 max-w-md mx-auto min-h-screen bg-orange-50", isSelectMode ? "pb-44" : "pb-4")}>
       
       {activeTab !== 'Archive' ? (
-        <div className="flex items-center gap-3 mb-6 sticky top-0 z-40 bg-orange-50 py-3 -mx-6 px-6">
+        <div className="flex items-center gap-3 mb-6 sticky -top-1 z-40 bg-orange-50 pt-1 pb-3 -mx-6 px-6 -mt-6 border-b border-orange-100/50">
             <div className="flex-1 flex bg-white p-1.5 rounded-2xl shadow-sm border border-slate-100">
                 <button
                     onClick={() => { exitSelectMode(); setActiveTab('Closet'); }}

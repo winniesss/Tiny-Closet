@@ -125,6 +125,24 @@ export const AddItem: React.FC = () => {
           allItems.push({ image: allBase64[0], dateAdded: Date.now(), seasons: [] });
         }
 
+        // Unify brand: find the most common known brand and fill unknowns
+        const brandCounts = new Map<string, number>();
+        allItems.forEach(item => {
+          const b = item.brand;
+          if (b && b !== 'Unknown' && b.trim()) {
+            const key = b.trim();
+            brandCounts.set(key, (brandCounts.get(key) || 0) + 1);
+          }
+        });
+        if (brandCounts.size > 0) {
+          const topBrand = [...brandCounts.entries()].sort((a, b) => b[1] - a[1])[0][0];
+          allItems.forEach(item => {
+            if (!item.brand || item.brand === 'Unknown' || !item.brand.trim()) {
+              item.brand = topBrand;
+            }
+          });
+        }
+
         setReviewItems(allItems);
         setCurrentIndex(0);
         setHdProgress('');
