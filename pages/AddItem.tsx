@@ -51,6 +51,9 @@ export const AddItem: React.FC = () => {
 
   // Multi-file queue
   const [pendingFiles, setPendingFiles] = useState<string[]>([]);
+
+  // Track source image per item for recropping
+  const [sourceImages, setSourceImages] = useState<Map<number, string>>(new Map());
   
   // Refine/Rescan Menu State
   const [rescanMenuOpen, setRescanMenuOpen] = useState(false);
@@ -108,19 +111,23 @@ export const AddItem: React.FC = () => {
 
       try {
         const allItems: Partial<ClothingItem>[] = [];
+        const srcMap = new Map<number, string>();
         for (let i = 0; i < allBase64.length; i++) {
           setHdProgress(`Analyzing screenshot ${i + 1} of ${allBase64.length}...`);
           const foundItems = await analyzeClothingImage(allBase64[i]);
           if (foundItems && foundItems.length > 0) {
             foundItems.forEach((item: any) => {
+              const idx = allItems.length;
               allItems.push({
                 ...item,
                 image: item.image || allBase64[i],
                 dateAdded: Date.now()
               });
+              srcMap.set(idx, allBase64[i]);
             });
           }
         }
+        setSourceImages(srcMap);
 
         if (allItems.length === 0) {
           allItems.push({ image: allBase64[0], dateAdded: Date.now(), seasons: [] });
@@ -893,7 +900,7 @@ export const AddItem: React.FC = () => {
                 <button 
                      onClick={() => {
                         setRecropIndex(currentIndex);
-                        initCrop(originalImage || currentItem.image!);
+                        initCrop(sourceImages.get(currentIndex) || originalImage || currentItem.image!);
                      }}
                      className="absolute top-6 left-6 p-3 bg-white/90 backdrop-blur rounded-xl text-slate-400 hover:text-sky-500 shadow-sm transition-colors"
                      title="Manual Crop"
