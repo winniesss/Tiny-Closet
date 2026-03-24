@@ -14,8 +14,9 @@ RUN npm install
 # Copy source files
 COPY . ./
 
-# Build frontend
-RUN echo "API_KEY=AIzaSyCOQxEQYEyuv5H4-ToryhvSdBSLsApTSpI" > .env && npm run build && rm -f .env
+# Build frontend — key injected at build time, not stored in image
+ARG API_KEY
+RUN echo "API_KEY=${API_KEY}" > .env && npm run build && rm -f .env
 
 # Remove devDeps after build
 RUN npm prune --omit=dev
@@ -31,4 +32,3 @@ ENV NODE_ENV=production
 EXPOSE 8080
 
 CMD ["node", "server.js"]
-# rebuild 1774340677
