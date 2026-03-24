@@ -508,12 +508,19 @@ export const AddItem: React.FC = () => {
     const current = reviewItems[currentIndex];
     if (!current) return;
 
-    // Build search query — use all available info for best results
+    // Try to find brand from current item or any other item in the batch
+    let brand = current.brand && current.brand !== 'Unknown' ? current.brand : '';
+    if (!brand) {
+      const otherBrand = reviewItems.find(i => i.brand && i.brand !== 'Unknown')?.brand;
+      if (otherBrand) brand = otherBrand;
+    }
+
     const queryParts = [
-      current.brand && current.brand !== 'Unknown' ? current.brand : '',
+      brand,
       current.description,
       current.color,
       current.category,
+      current.sizeLabel && current.sizeLabel !== 'Unknown' ? `size ${current.sizeLabel}` : '',
     ].filter(Boolean);
     const query = queryParts.join(' ');
 

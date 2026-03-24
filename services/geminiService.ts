@@ -366,12 +366,18 @@ export const findBetterItemImage = async (query: string, base64Image?: string): 
     }
 
     parts.push({
-      text: `Find the product page URL for this clothing item: "${query}".
+      text: `Find the exact product page URL for this kids clothing item.
 
-Search for it on Google. Return the product page URL from a retailer or brand website.
+Product details: "${query}"
+
+Search strategy:
+1. Search Google for: site:${query.split(' ')[0]?.toLowerCase()}.com ${query} OR "${query}" kids clothing
+2. Look for product pages on the brand's official website, Maisonette, Smallable, Misha and Puff, Soor Ploom, or specialty kids clothing retailers
+3. Prefer URLs containing "/products/", "/shop/", or "/collections/"
+4. Do NOT return search result pages, blog posts, or social media links
 
 Return JSON: { "sourceUrl": "https://..." }
-Only return the product page URL, nothing else.`
+Only return ONE product page URL.`
     });
 
     const response = await ai.models.generateContent({
