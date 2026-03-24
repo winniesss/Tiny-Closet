@@ -7,7 +7,7 @@ import fs from 'fs';
 puppeteer.use(StealthPlugin());
 
 const app = express();
-const PORT = 3001;
+const PORT = process.env.PORT || 3001;
 
 const CHROME_PATHS = [
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
@@ -27,9 +27,10 @@ let browser = null;
 
 async function getBrowser() {
   if (browser && browser.connected) return browser;
+  const chromePath = process.env.PUPPETEER_EXECUTABLE_PATH || findChrome();
   browser = await puppeteer.launch({
     headless: 'new',
-    executablePath: findChrome(),
+    executablePath: chromePath,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
