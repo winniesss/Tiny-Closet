@@ -2,9 +2,9 @@ FROM ghcr.io/puppeteer/puppeteer:24.2.0
 
 WORKDIR /app
 
-COPY package.json package-lock.json ./
+COPY package.json ./
 
-RUN npm ci --omit=dev
+RUN npm install --omit=dev
 
 COPY server.js ./
 
