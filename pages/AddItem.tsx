@@ -432,32 +432,8 @@ export const AddItem: React.FC = () => {
           }];
         }
 
-        // --- Auto-fetch HD images for each item ---
-        const itemsWithHD = await Promise.all(
-          initialItems.map(async (item, idx) => {
-            const query = [
-              item.brand && item.brand !== 'Unknown' ? item.brand : '',
-              item.description,
-              item.color,
-              item.category,
-            ].filter(Boolean).join(' ');
-
-            if (!query.trim() || query.length < 5) return item;
-
-            try {
-              setHdProgress(`Finding HD image ${idx + 1}/${initialItems.length}...`);
-              const result = await findBetterItemImage(query, item.image);
-              if (result.success && result.data?.imageUrl && result.data.imageUrl.startsWith('data:')) {
-                return { ...item, image: result.data.imageUrl };
-              }
-            } catch {
-              // HD fetch failed, keep original image
-            }
-            return item;
-          })
-        );
-
-        setReviewItems(itemsWithHD);
+        // Skip auto HD — user can Find HD after editing brand/description
+        setReviewItems(initialItems);
         setCurrentIndex(0);
         setHdProgress('');
         setStep('review');
