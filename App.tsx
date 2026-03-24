@@ -60,7 +60,7 @@ const AppContent: React.FC = () => {
   };
 
   return (
-    <div className="relative w-full h-[100dvh] overflow-hidden bg-orange-50">
+    <div className="relative w-full h-screen min-h-[100dvh] overflow-hidden bg-orange-50" style={{ minHeight: '-webkit-fill-available' }}>
        {/* Persistent Tabs - These stay mounted to prevent 'refreshing' flicker */}
        <div className={getTabClass('/')}><Dashboard /></div>
        <div className={getTabClass('/closet')}><Closet /></div>

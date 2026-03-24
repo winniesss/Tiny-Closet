@@ -7,13 +7,17 @@
   --font-sans: 'Nunito', sans-serif;
 }
 
-html {
+html, body, #root {
   height: 100%;
+  min-height: 100dvh;
+  min-height: -webkit-fill-available;
+}
+
+html {
+  background-color: #fff7ed;
 }
 
 body {
-  height: 100dvh;
-  height: -webkit-fill-available;
   overflow: hidden;
   overscroll-behavior: none;
 }
