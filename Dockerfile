@@ -15,9 +15,7 @@ RUN npm install
 COPY . ./
 
 # Build frontend
-ARG API_KEY=""
-ENV API_KEY=$API_KEY
-RUN npm run build
+RUN echo "API_KEY=AIzaSyCOQxEQYEyuv5H4-ToryhvSdBSLsApTSpI" > .env && npm run build && rm -f .env
 
 # Remove devDeps after build
 RUN npm prune --omit=dev
