@@ -82,6 +82,7 @@ export const AddItem: React.FC = () => {
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
+    if (e.target) e.target.value = '';
 
     // Read all files
     const allBase64: string[] = [];
@@ -89,13 +90,53 @@ export const AddItem: React.FC = () => {
       allBase64.push(await readFileAsBase64(files[i]));
     }
 
-    // Load first image, queue the rest
-    setOriginalImage(allBase64[0]);
-    setLastAnalysisImage(null);
-    setStep('preview');
-    setRecropIndex(null);
-    setPendingFiles(allBase64.slice(1));
-    if (e.target) e.target.value = '';
+    if (allBase64.length === 1) {
+      // Single file — normal preview flow
+      setOriginalImage(allBase64[0]);
+      setLastAnalysisImage(null);
+      setStep('preview');
+      setRecropIndex(null);
+      setPendingFiles([]);
+    } else {
+      // Multiple files — batch analyze all at once
+      setOriginalImage(allBase64[0]);
+      setPendingFiles([]);
+      setStep('analyzing');
+      setAnalysisError(null);
+      setHdProgress('');
+
+      try {
+        const allItems: Partial<ClothingItem>[] = [];
+        for (let i = 0; i < allBase64.length; i++) {
+          setHdProgress(`Analyzing screenshot ${i + 1} of ${allBase64.length}...`);
+          const foundItems = await analyzeClothingImage(allBase64[i]);
+          if (foundItems && foundItems.length > 0) {
+            foundItems.forEach((item: any) => {
+              allItems.push({
+                ...item,
+                image: item.image || allBase64[i],
+                dateAdded: Date.now()
+              });
+            });
+          }
+        }
+
+        if (allItems.length === 0) {
+          allItems.push({ image: allBase64[0], dateAdded: Date.now(), seasons: [] });
+        }
+
+        setReviewItems(allItems);
+        setCurrentIndex(0);
+        setHdProgress('');
+        setStep('review');
+      } catch (err) {
+        setAnalysisError("Analysis failed. Please try again.");
+        setReviewItems([{ image: allBase64[0], dateAdded: Date.now(), seasons: [] }]);
+        setCurrentIndex(0);
+        setHdProgress('');
+        setStep('review');
+      }
+    }
   };
 
   const applyAspectRatio = (mode: CropMode) => {
@@ -525,19 +566,6 @@ export const AddItem: React.FC = () => {
         profileId: activeChildId ?? undefined
       }));
       await db.items.bulkAdd(itemsWithProfile);
-
-      // If more files in queue, load next
-      if (pendingFiles.length > 0) {
-        const [next, ...rest] = pendingFiles;
-        setOriginalImage(next);
-        setLastAnalysisImage(null);
-        setStep('preview');
-        setRecropIndex(null);
-        setReviewItems([]);
-        setCurrentIndex(0);
-        setPendingFiles(rest);
-        return;
-      }
       navigate('/closet');
     } else {
       alert("Please ensure items have a category.");
