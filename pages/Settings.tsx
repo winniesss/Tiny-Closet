@@ -7,7 +7,7 @@ import { Camera, User, Download, UploadCloud, CheckCircle2, AlertCircle, HelpCir
 import { useActiveChild } from '../hooks/useActiveChild';
 import clsx from 'clsx';
 
-const CURRENT_VERSION = '1.8';
+const CURRENT_VERSION = '2.0';
 
 export const Settings: React.FC = () => {
   const { profiles, activeChild, activeChildId, setActiveChildId } = useActiveChild();
@@ -21,6 +21,16 @@ export const Settings: React.FC = () => {
   const importInputRef = useRef<HTMLInputElement>(null);
 
   const releaseNotes = [
+      {
+          version: "2.0",
+          changes: [
+              "New: Shop Inspo — save outfit inspiration and match to your closet.",
+              "New: Weekly Planner with drag-to-arrange canvas.",
+              "New: Smart filters (Recent, Season) when picking outfits.",
+              "New: 'Planned' tab on Dashboard shows today's planned outfit.",
+              "Merged Playful/Chic into unified 'For You' recommendation.",
+          ]
+      },
       {
           version: "1.8",
           changes: [

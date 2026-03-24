@@ -1,70 +1,20 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
-import { ShopAccount, ShopPost, AnalyzedShopItem, ClothingItem, Category } from '../types';
+import { ShopPost, AnalyzedShopItem, ClothingItem } from '../types';
 import { analyzeShopPost, matchItemsToCloset } from '../services/geminiService';
 import { useActiveChild } from '../hooks/useActiveChild';
-import { Plus, Loader2, X, RefreshCw, Check, ShoppingBag, Sparkles, ChevronRight, ArrowLeft } from 'lucide-react';
+import { Loader2, X, ImagePlus, Check, ShoppingBag, Sparkles, Trash2 } from 'lucide-react';
 import clsx from 'clsx';
-
-// --- Add Account Sheet ---
-const AddAccountSheet: React.FC<{
-  onClose: () => void;
-  onAdd: (handle: string) => void;
-  loading: boolean;
-  error: string | null;
-}> = ({ onClose, onAdd, loading, error }) => {
-  const [handle, setHandle] = useState('');
-
-  return (
-    <div className="fixed inset-0 z-[100] flex items-start justify-center pt-[20vh]">
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-white rounded-[2rem] p-6 mx-6 w-full max-w-sm shadow-2xl">
-        <button onClick={onClose} className="absolute top-4 right-4 p-1 text-slate-300">
-          <X size={18} />
-        </button>
-        <h2 className="font-serif font-bold text-lg text-slate-800 mb-1">Follow a Shop</h2>
-        <p className="text-sm text-slate-400 font-bold mb-5">Enter an Instagram handle</p>
-
-        <div className="flex items-center bg-slate-50 rounded-xl border border-slate-200 px-4 py-3 mb-3">
-          <span className="text-slate-400 font-bold mr-1">@</span>
-          <input
-            type="text"
-            value={handle}
-            onChange={(e) => setHandle(e.target.value.replace(/[@\s]/g, ''))}
-            placeholder="thefrontshop"
-            className="flex-1 bg-transparent outline-none text-slate-800 font-bold placeholder:text-slate-300"
-            autoFocus
-          />
-        </div>
-
-        <button
-          onClick={() => handle.trim() && onAdd(handle.trim())}
-          disabled={!handle.trim() || loading}
-          className={clsx(
-            "w-full py-3.5 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2",
-            loading ? "bg-slate-200 text-slate-400" : "bg-orange-400 text-white active:scale-95"
-          )}
-        >
-          {loading ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
-          {loading ? 'Fetching posts...' : 'Follow'}
-        </button>
-
-        {error && (
-          <p className="text-sm text-red-400 font-bold bg-red-50 rounded-xl px-4 py-2 mt-3">{error}</p>
-        )}
-      </div>
-    </div>
-  );
-};
 
 // --- Post Detail Modal ---
 const PostDetailModal: React.FC<{
   post: ShopPost;
   closetItems: ClothingItem[];
   onClose: () => void;
-}> = ({ post, closetItems, onClose }) => {
+  onDelete: () => void;
+}> = ({ post, closetItems, onClose, onDelete }) => {
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzedItems, setAnalyzedItems] = useState<AnalyzedShopItem[]>(post.analyzedItems || []);
   const [matches, setMatches] = useState<ReturnType<typeof matchItemsToCloset>>([]);
@@ -74,11 +24,9 @@ const PostDetailModal: React.FC<{
     try {
       const items = await analyzeShopPost(post.image);
       setAnalyzedItems(items);
-      // Save to DB
       if (post.id) {
         await db.shopPosts.update(post.id, { analyzedItems: items, isProcessed: true });
       }
-      // Run matching
       const matchResults = matchItemsToCloset(items, closetItems);
       setMatches(matchResults);
     } catch (e) {
@@ -88,7 +36,6 @@ const PostDetailModal: React.FC<{
     }
   };
 
-  // Auto-match if already analyzed
   React.useEffect(() => {
     if (analyzedItems.length > 0 && matches.length === 0) {
       const matchResults = matchItemsToCloset(analyzedItems, closetItems);
@@ -107,19 +54,22 @@ const PostDetailModal: React.FC<{
           <div className="w-10 h-1 bg-slate-300 rounded-full mx-auto mb-4" />
           <div className="flex items-center justify-between">
             <h2 className="font-serif font-bold text-lg text-slate-800">Outfit Details</h2>
-            <button onClick={onClose} className="p-2 rounded-full bg-white shadow-sm text-slate-400">
-              <X size={18} />
-            </button>
+            <div className="flex gap-2">
+              <button onClick={onDelete} className="p-2 rounded-full bg-red-50 text-red-400">
+                <Trash2 size={16} />
+              </button>
+              <button onClick={onClose} className="p-2 rounded-full bg-white shadow-sm text-slate-400">
+                <X size={18} />
+              </button>
+            </div>
           </div>
         </div>
 
         <div className="overflow-y-auto flex-1 px-6 pb-8">
-          {/* Post Image */}
           <div className="rounded-2xl overflow-hidden shadow-sm border border-slate-100 mb-5">
-            <img src={post.image} alt="Shop post" className="w-full h-auto" />
+            <img src={post.image} alt="Outfit inspo" className="w-full h-auto" />
           </div>
 
-          {/* Analyze Button or Results */}
           {analyzedItems.length === 0 ? (
             <button
               onClick={handleAnalyze}
@@ -134,7 +84,6 @@ const PostDetailModal: React.FC<{
             </button>
           ) : (
             <>
-              {/* Match Summary */}
               <div className="bg-white rounded-2xl p-4 mb-4 border border-slate-100 shadow-sm">
                 <div className="flex items-center justify-between mb-2">
                   <h3 className="font-serif font-bold text-slate-800">Detected Items</h3>
@@ -149,8 +98,7 @@ const PostDetailModal: React.FC<{
                 </div>
               </div>
 
-              {/* Match Results */}
-              <div className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm mb-4">
+              <div className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm">
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="font-serif font-bold text-slate-800">Closet Match</h3>
                   <span className={clsx(
@@ -161,7 +109,6 @@ const PostDetailModal: React.FC<{
                     {matchedCount}/{totalItems} matched
                   </span>
                 </div>
-
                 <div className="space-y-3">
                   {matches.map((match, i) => {
                     const hasMatch = match.matchedClosetItemIds.length > 0;
@@ -169,21 +116,14 @@ const PostDetailModal: React.FC<{
                       .slice(0, 3)
                       .map(id => closetItems.find(c => c.id === id))
                       .filter(Boolean) as ClothingItem[];
-
                     return (
                       <div key={i} className={clsx(
                         "rounded-xl p-3 border",
                         hasMatch ? "bg-green-50/50 border-green-100" : "bg-slate-50 border-slate-100"
                       )}>
                         <div className="flex items-center gap-2 mb-2">
-                          {hasMatch ? (
-                            <Check size={14} className="text-green-500" />
-                          ) : (
-                            <ShoppingBag size={14} className="text-slate-400" />
-                          )}
-                          <span className="text-sm font-bold text-slate-700">
-                            {match.shopItemDescription}
-                          </span>
+                          {hasMatch ? <Check size={14} className="text-green-500" /> : <ShoppingBag size={14} className="text-slate-400" />}
+                          <span className="text-sm font-bold text-slate-700">{match.shopItemDescription}</span>
                         </div>
                         {hasMatch ? (
                           <div className="flex gap-2">
@@ -192,9 +132,7 @@ const PostDetailModal: React.FC<{
                                 <img src={item.image} alt="" className="w-full h-full object-cover" />
                               </div>
                             ))}
-                            <span className="text-[10px] font-bold text-green-600 self-center ml-1">
-                              {match.matchReason}
-                            </span>
+                            <span className="text-[10px] font-bold text-green-600 self-center ml-1">{match.matchReason}</span>
                           </div>
                         ) : (
                           <p className="text-xs text-slate-400 font-bold">Not in your closet yet</p>
@@ -215,19 +153,24 @@ const PostDetailModal: React.FC<{
 // --- Main ShopInspo Component ---
 export const ShopInspo: React.FC = () => {
   const { activeChildId } = useActiveChild();
-  const [showAddSheet, setShowAddSheet] = useState(false);
-  const [addLoading, setAddLoading] = useState(false);
-  const [addError, setAddError] = useState<string | null>(null);
-  const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
   const [selectedPost, setSelectedPost] = useState<ShopPost | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const accounts = useLiveQuery(() => db.shopAccounts.toArray());
+  // Use a default "inspo" account — auto-created
+  const inspoAccount = useLiveQuery(async () => {
+    let account = await db.shopAccounts.where('handle').equals('_inspo').first();
+    if (!account) {
+      const id = await db.shopAccounts.add({ handle: '_inspo', displayName: 'My Inspo', profileId: activeChildId ?? undefined });
+      account = await db.shopAccounts.get(id);
+    }
+    return account;
+  }, [activeChildId]);
+
   const posts = useLiveQuery(
-    () => selectedAccountId
-      ? db.shopPosts.where('shopAccountId').equals(selectedAccountId).reverse().toArray()
+    () => inspoAccount?.id
+      ? db.shopPosts.where('shopAccountId').equals(inspoAccount.id).reverse().toArray()
       : Promise.resolve([] as ShopPost[]),
-    [selectedAccountId]
+    [inspoAccount?.id]
   );
 
   const allItemsRaw = useLiveQuery(() => db.items.filter(i => !i.isArchived).toArray());
@@ -239,210 +182,92 @@ export const ShopInspo: React.FC = () => {
     });
   }, [allItemsRaw, activeChildId]);
 
-  const selectedAccount = accounts?.find(a => a.id === selectedAccountId);
-
-  const fetchPosts = async (handle: string, accountId: number) => {
-    const res = await fetch(`/api/scrape-instagram?handle=${encodeURIComponent(handle)}&limit=9`);
-    const data = await res.json();
-    if (data.error && (!data.posts || data.posts.length === 0)) {
-      throw new Error(data.error);
-    }
-    // Save posts, skip duplicates
-    for (const post of data.posts || []) {
-      const existing = await db.shopPosts
-        .where('[shopAccountId+postUrl]')
-        .equals([accountId, post.postUrl])
-        .first();
-      if (!existing) {
-        await db.shopPosts.add({
-          shopAccountId: accountId,
-          postUrl: post.postUrl,
-          image: post.imageUrl,
-          dateFetched: Date.now(),
-          isProcessed: false,
-        });
-      }
-    }
-    // Update lastFetched
-    await db.shopAccounts.update(accountId, { lastFetched: Date.now() });
-  };
-
-  const handleAddAccount = async (handle: string) => {
-    setAddLoading(true);
-    setAddError(null);
-    try {
-      // Check if already followed
-      const existing = await db.shopAccounts.where('handle').equals(handle.toLowerCase()).first();
-      if (existing) {
-        setSelectedAccountId(existing.id!);
-        setShowAddSheet(false);
-        setAddLoading(false);
-        return;
-      }
-      // Add account
-      const id = await db.shopAccounts.add({
-        handle: handle.toLowerCase(),
-        displayName: handle,
-        profileId: activeChildId ?? undefined,
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!inspoAccount?.id || !e.target.files) return;
+    const files = Array.from(e.target.files);
+    for (const file of files) {
+      const base64 = await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.readAsDataURL(file);
       });
-      // Fetch posts
-      await fetchPosts(handle.toLowerCase(), id as number);
-      setSelectedAccountId(id as number);
-      setShowAddSheet(false);
-    } catch (e: any) {
-      setAddError(e.message || 'Failed to fetch posts. The account may be private.');
-    } finally {
-      setAddLoading(false);
+      await db.shopPosts.add({
+        shopAccountId: inspoAccount.id,
+        postUrl: `inspo-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        image: base64,
+        dateFetched: Date.now(),
+        isProcessed: false,
+      });
     }
+    if (e.target) e.target.value = '';
   };
 
-  const handleRefresh = async () => {
-    if (!selectedAccount || refreshing) return;
-    setRefreshing(true);
-    try {
-      await fetchPosts(selectedAccount.handle, selectedAccount.id!);
-    } catch (e) {
-      console.error('Refresh failed:', e);
-    } finally {
-      setRefreshing(false);
-    }
+  const handleDeletePost = async (postId: number) => {
+    await db.shopPosts.delete(postId);
+    setSelectedPost(null);
   };
 
-  const handleRemoveAccount = async (accountId: number) => {
-    await db.shopPosts.where('shopAccountId').equals(accountId).delete();
-    await db.shopAccounts.delete(accountId);
-    if (selectedAccountId === accountId) setSelectedAccountId(null);
-  };
-
-  // --- Account Detail View ---
-  if (selectedAccount && posts) {
-    return (
-      <div className="space-y-4">
-        {/* Account header */}
-        <div className="flex items-center justify-between">
-          <button
-            onClick={() => setSelectedAccountId(null)}
-            className="flex items-center gap-2 text-slate-500 font-bold text-sm"
-          >
-            <ArrowLeft size={16} /> Back
-          </button>
-          <button
-            onClick={handleRefresh}
-            disabled={refreshing}
-            className="flex items-center gap-1 text-sm font-bold text-orange-500 active:scale-95 transition-transform"
-          >
-            <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
-            {refreshing ? 'Refreshing...' : 'Refresh'}
-          </button>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-full bg-gradient-to-br from-orange-400 to-pink-500 flex items-center justify-center text-white font-bold text-lg font-serif">
-            {selectedAccount.handle[0].toUpperCase()}
-          </div>
-          <div>
-            <h2 className="font-serif font-bold text-xl text-slate-800">@{selectedAccount.handle}</h2>
-            <p className="text-xs font-bold text-slate-400">{posts.length} posts saved</p>
-          </div>
-        </div>
-
-        {/* Posts grid */}
-        {posts.length === 0 ? (
-          <div className="text-center py-12 opacity-50">
-            <ShoppingBag size={32} className="mx-auto mb-3 text-slate-300" />
-            <p className="font-bold text-slate-500">No posts fetched yet.</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-3 gap-1.5">
-            {posts.map(post => (
-              <div
-                key={post.id}
-                onClick={() => setSelectedPost(post)}
-                className="relative aspect-square rounded-xl overflow-hidden cursor-pointer border border-slate-100 active:scale-95 transition-transform"
-              >
-                <img src={post.image} alt="" className="w-full h-full object-cover" />
-                {post.isProcessed && (
-                  <div className="absolute top-1 right-1 w-5 h-5 bg-green-500 rounded-full flex items-center justify-center">
-                    <Check size={10} className="text-white" strokeWidth={3} />
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Post detail modal */}
-        {selectedPost && (
-          <PostDetailModal
-            post={selectedPost}
-            closetItems={closetItems}
-            onClose={() => setSelectedPost(null)}
-          />
-        )}
-      </div>
-    );
-  }
-
-  // --- Accounts List View ---
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-baseline">
-        <h1 className="text-3xl text-slate-800 font-serif">Shop Inspo</h1>
+        <h1 className="text-3xl text-slate-800 font-serif">Inspo</h1>
         <button
-          onClick={() => { setAddError(null); setShowAddSheet(true); }}
+          onClick={() => fileInputRef.current?.click()}
           className="flex items-center gap-1 text-sm font-bold text-orange-500 active:scale-95 transition-transform"
         >
-          <Plus size={16} /> Follow Shop
+          <ImagePlus size={16} /> Add
         </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          onChange={handleUpload}
+          className="hidden"
+        />
       </div>
 
-      {!accounts || accounts.length === 0 ? (
+      {!posts || posts.length === 0 ? (
         <div className="text-center py-16">
           <div className="w-20 h-20 bg-gradient-to-br from-orange-100 to-pink-100 rounded-full flex items-center justify-center mx-auto mb-5">
-            <ShoppingBag size={32} className="text-orange-400" />
+            <ImagePlus size={32} className="text-orange-400" />
           </div>
-          <h3 className="font-serif font-bold text-lg text-slate-800 mb-2">Follow Your Favorite Shops</h3>
+          <h3 className="font-serif font-bold text-lg text-slate-800 mb-2">Save Outfit Inspo</h3>
           <p className="text-sm text-slate-400 font-bold max-w-[240px] mx-auto mb-6">
-            Add Instagram shops to get outfit inspiration and see what matches your closet.
+            Upload screenshots of outfits you love. AI will analyze them and match to your closet.
           </p>
           <button
-            onClick={() => { setAddError(null); setShowAddSheet(true); }}
+            onClick={() => fileInputRef.current?.click()}
             className="px-6 py-3 bg-orange-400 text-white font-bold rounded-full shadow-md active:scale-95 transition-transform"
           >
-            Add First Shop
+            Upload First Outfit
           </button>
         </div>
       ) : (
-        <div className="space-y-3">
-          {accounts.map(account => (
+        <div className="grid grid-cols-3 gap-1.5">
+          {posts.map(post => (
             <div
-              key={account.id}
-              onClick={() => setSelectedAccountId(account.id!)}
-              className="flex items-center gap-3 bg-white rounded-2xl p-4 shadow-sm border border-slate-100 cursor-pointer active:scale-[0.98] transition-all"
+              key={post.id}
+              onClick={() => setSelectedPost(post)}
+              className="relative aspect-square rounded-xl overflow-hidden cursor-pointer border border-slate-100 active:scale-95 transition-transform"
             >
-              <div className="w-11 h-11 rounded-full bg-gradient-to-br from-orange-400 to-pink-500 flex items-center justify-center text-white font-bold text-base font-serif shrink-0">
-                {account.handle[0].toUpperCase()}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-bold text-slate-800">@{account.handle}</p>
-                <p className="text-xs text-slate-400 font-bold">
-                  {account.lastFetched
-                    ? `Updated ${new Date(account.lastFetched).toLocaleDateString()}`
-                    : 'Not fetched yet'}
-                </p>
-              </div>
-              <ChevronRight size={16} className="text-slate-300 shrink-0" />
+              <img src={post.image} alt="" className="w-full h-full object-cover" />
+              {post.isProcessed && (
+                <div className="absolute top-1 right-1 w-5 h-5 bg-green-500 rounded-full flex items-center justify-center">
+                  <Check size={10} className="text-white" strokeWidth={3} />
+                </div>
+              )}
             </div>
           ))}
         </div>
       )}
 
-      {showAddSheet && (
-        <AddAccountSheet
-          onClose={() => setShowAddSheet(false)}
-          onAdd={handleAddAccount}
-          loading={addLoading}
-          error={addError}
+      {selectedPost && (
+        <PostDetailModal
+          post={selectedPost}
+          closetItems={closetItems}
+          onClose={() => setSelectedPost(null)}
+          onDelete={() => handleDeletePost(selectedPost.id!)}
         />
       )}
     </div>
