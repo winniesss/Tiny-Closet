@@ -7,6 +7,7 @@ import { Closet } from './pages/Closet';
 import { AddItem } from './pages/AddItem';
 import { Stats } from './pages/Stats';
 import { Settings } from './pages/Settings';
+import { WeeklyPlanner } from './pages/WeeklyPlanner';
 import { SignUp } from './pages/SignUp';
 import { db } from './db';
 import clsx from 'clsx';
@@ -17,6 +18,7 @@ const AppContent: React.FC = () => {
   const path = location.pathname;
 
   const isAddItem = path === '/add';
+  const isPlan = path === '/plan';
   const isSignUp = path === '/signup';
 
   // Check onboarding status
@@ -65,20 +67,29 @@ const AppContent: React.FC = () => {
        <div className={getTabClass('/stats')}><Stats /></div>
        <div className={getTabClass('/settings')}><Settings /></div>
        
-       {/* Sign Up Page - Needs full screen handling with safe areas */}
-       <div className={clsx("absolute inset-0 w-full h-full z-50 bg-orange-50 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]", isSignUp ? "visible" : "invisible")}>
-            <SignUp />
-       </div>
+       {/* Sign Up Page - Only mounted when on signup */}
+       {isSignUp && (
+         <div className="absolute inset-0 w-full h-full z-50 bg-orange-50 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
+              <SignUp />
+         </div>
+       )}
 
-       {/* Navbar - Hidden when adding an item or on sign up page */}
-       <div className={clsx("absolute bottom-0 left-0 right-0 z-40 transition-transform duration-300", (isAddItem || isSignUp) ? "translate-y-full" : "translate-y-0")}>
+       {/* Navbar - Hidden when adding an item, planning, or on sign up page */}
+       <div className={clsx("absolute bottom-0 left-0 right-0 z-40 transition-transform duration-300", (isAddItem || isPlan || isSignUp) ? "translate-y-full" : "translate-y-0")}>
            <Navbar />
        </div>
 
-       {/* Add Item Overlay - Mounted conditionally to reset state on close */}
+       {/* Add Item Overlay */}
        {isAddItem && (
            <div className="absolute inset-0 z-50 bg-orange-50 overflow-y-auto animate-in slide-in-from-bottom-10 duration-300 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
                <AddItem />
+           </div>
+       )}
+
+       {/* Weekly Planner Overlay */}
+       {isPlan && (
+           <div className="absolute inset-0 z-50 bg-orange-50 overflow-y-auto animate-in slide-in-from-bottom-10 duration-300 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
+               <WeeklyPlanner />
            </div>
        )}
     </div>

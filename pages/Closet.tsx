@@ -3,12 +3,14 @@ import React, { useState, useRef, useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
 import { Category, Season, ClothingItem, OutfitLike } from '../types';
-import { Search, Archive, CheckCircle2, RotateCcw, Trash2, Calendar, Shirt, Sparkles, Smile, Tag, Filter, X, ChevronLeft } from 'lucide-react';
+import { Search, Archive, CheckCircle2, RotateCcw, Trash2, Calendar, Shirt, Sparkles, Smile, Tag, Filter, X, ChevronLeft, CheckSquare, Square, ShoppingBag } from 'lucide-react';
 import { ItemDetailModal } from '../components/ItemDetailModal';
+import { ShopInspo } from '../components/ShopInspo';
+import { useActiveChild } from '../hooks/useActiveChild';
 import clsx from 'clsx';
 
 export const Closet: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'Closet' | 'Lookbook' | 'Archive'>('Closet');
+  const [activeTab, setActiveTab] = useState<'Closet' | 'Lookbook' | 'Inspo' | 'Archive'>('Closet');
   const [filterCategory, setFilterCategory] = useState<Category | 'All'>('All');
   const [filterSeason, setFilterSeason] = useState<Season | 'All'>('All');
   const [filterBrand, setFilterBrand] = useState<string | 'All'>('All');
@@ -19,8 +21,23 @@ export const Closet: React.FC = () => {
   const [actionItem, setActionItem] = useState<ClothingItem | null>(null);
   const [notification, setNotification] = useState<string | null>(null);
 
-  const items = useLiveQuery(() => db.items.toArray());
-  const outfits = useLiveQuery(() => db.outfitLikes.reverse().toArray()); // Newest first
+  // Batch Select State
+  const [isSelectMode, setIsSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+
+  const { activeChildId } = useActiveChild();
+  const allDbItems = useLiveQuery(() => db.items.toArray());
+  const allDbOutfits = useLiveQuery(() => db.outfitLikes.reverse().toArray()); // Newest first
+
+  // Filter by active child
+  const items = allDbItems?.filter(item => {
+    if (!activeChildId) return true;
+    return !item.profileId || item.profileId === activeChildId;
+  });
+  const outfits = allDbOutfits?.filter(o => {
+    if (!activeChildId) return true;
+    return !o.profileId || o.profileId === activeChildId;
+  });
 
   // --- Filter Logic ---
   const filteredItems = useMemo(() => {
@@ -161,6 +178,69 @@ export const Closet: React.FC = () => {
       }
   };
 
+  const exitSelectMode = () => {
+      setIsSelectMode(false);
+      setSelectedIds(new Set());
+  };
+
+  const toggleSelectId = (id: number) => {
+      setSelectedIds(prev => {
+          const next = new Set(prev);
+          if (next.has(id)) {
+              next.delete(id);
+          } else {
+              next.add(id);
+          }
+          return next;
+      });
+  };
+
+  const handleSelectAll = () => {
+      if (!filteredItems) return;
+      const allIds = filteredItems.map(i => i.id).filter((id): id is number => id !== undefined);
+      if (selectedIds.size === allIds.length) {
+          setSelectedIds(new Set());
+      } else {
+          setSelectedIds(new Set(allIds));
+      }
+  };
+
+  const handleBatchArchive = async () => {
+      if (selectedIds.size === 0) return;
+      const isArchiveTab = activeTab === 'Archive';
+
+      for (const id of selectedIds) {
+          const item = items?.find(i => i.id === id);
+          if (item) {
+              const newState = !item.isArchived;
+              const updates: any = { isArchived: newState };
+              if (newState) {
+                  updates.dateArchived = Date.now();
+              } else {
+                  updates.dateArchived = undefined;
+              }
+              await db.items.update(id, updates);
+          }
+      }
+
+      const count = selectedIds.size;
+      showNotification(`${count} item${count > 1 ? 's' : ''} ${isArchiveTab ? 'restored' : 'archived'}`);
+      exitSelectMode();
+  };
+
+  const handleBatchDelete = async () => {
+      if (selectedIds.size === 0) return;
+      const count = selectedIds.size;
+      if (!window.confirm(`Permanently delete ${count} item${count > 1 ? 's' : ''}?`)) return;
+
+      for (const id of selectedIds) {
+          await db.items.delete(id);
+      }
+
+      showNotification(`${count} item${count > 1 ? 's' : ''} deleted`);
+      exitSelectMode();
+  };
+
   const getOutfitImages = (outfit: OutfitLike) => {
       if (!items) return [];
       return outfit.itemIds
@@ -172,8 +252,10 @@ export const Closet: React.FC = () => {
       const timerRef = useRef<number | null>(null);
       const isLongPress = useRef(false);
       const longPressDuration = 600;
+      const isSelected = item.id !== undefined && selectedIds.has(item.id);
 
       const startPress = () => {
+          if (isSelectMode) return;
           isLongPress.current = false;
           timerRef.current = window.setTimeout(() => {
               isLongPress.current = true;
@@ -183,11 +265,12 @@ export const Closet: React.FC = () => {
       };
 
       const endPress = (e: React.MouseEvent | React.TouchEvent) => {
+          if (isSelectMode) return;
           if (timerRef.current !== null) {
               window.clearTimeout(timerRef.current);
               timerRef.current = null;
           }
-          
+
           if (isLongPress.current) {
               e.preventDefault();
               e.stopPropagation();
@@ -195,13 +278,17 @@ export const Closet: React.FC = () => {
       };
 
       const handleClick = () => {
+          if (isSelectMode) {
+              if (item.id !== undefined) toggleSelectId(item.id);
+              return;
+          }
           if (!isLongPress.current) {
               setSelectedItem(item);
           }
       };
 
       return (
-        <div 
+        <div
             onMouseDown={startPress}
             onMouseUp={endPress}
             onMouseLeave={endPress}
@@ -209,16 +296,30 @@ export const Closet: React.FC = () => {
             onTouchEnd={endPress}
             onClick={handleClick}
             onContextMenu={(e) => e.preventDefault()}
-            className="group relative bg-white rounded-[2rem] p-3 shadow-sm border border-slate-50 transition-transform active:scale-95 cursor-pointer select-none"
+            className={clsx(
+                "group relative bg-white rounded-[2rem] p-3 shadow-sm border transition-transform active:scale-95 cursor-pointer select-none",
+                isSelectMode && isSelected ? "border-sky-400 ring-2 ring-sky-200" : "border-slate-50"
+            )}
         >
             <div className="w-full aspect-[3/4] overflow-hidden rounded-[1.5rem] bg-orange-50 relative mb-3">
                 <img src={item.image} alt={item.description} className="w-full h-full object-cover pointer-events-none" />
-                
-                {item.isArchived && (
+
+                {item.isArchived && !isSelectMode && (
                     <div className="absolute inset-0 bg-slate-900/10 flex items-center justify-center">
                          <div className="bg-white/90 backdrop-blur px-3 py-1 rounded-full text-xs font-bold shadow-sm text-slate-600 flex items-center gap-1">
                              <Archive size={12} /> Archived
                          </div>
+                    </div>
+                )}
+
+                {isSelectMode && (
+                    <div className="absolute top-2 right-2 z-10">
+                        <div className={clsx(
+                            "w-7 h-7 rounded-lg flex items-center justify-center shadow-md transition-colors",
+                            isSelected ? "bg-sky-400 text-white" : "bg-white/90 backdrop-blur text-slate-300 border border-slate-200"
+                        )}>
+                            {isSelected ? <CheckSquare size={18} /> : <Square size={18} />}
+                        </div>
                     </div>
                 )}
             </div>
@@ -256,13 +357,13 @@ export const Closet: React.FC = () => {
   }
 
   return (
-    <div className="p-6 pb-28 max-w-md mx-auto min-h-screen bg-orange-50">
+    <div className={clsx("p-6 max-w-md mx-auto min-h-screen bg-orange-50", isSelectMode ? "pb-44" : "pb-28")}>
       
       {activeTab !== 'Archive' ? (
         <div className="flex items-center gap-3 mb-6 sticky top-2 z-40">
             <div className="flex-1 flex bg-white p-1.5 rounded-2xl shadow-sm border border-slate-100">
-                <button 
-                    onClick={() => setActiveTab('Closet')}
+                <button
+                    onClick={() => { exitSelectMode(); setActiveTab('Closet'); }}
                     className={clsx(
                         "flex-1 py-3 rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-2",
                         activeTab === 'Closet' ? "bg-orange-400 text-white shadow-sm" : "text-slate-400 hover:text-slate-600"
@@ -270,19 +371,28 @@ export const Closet: React.FC = () => {
                 >
                     <Shirt size={16} /> Closet
                 </button>
-                <button 
-                    onClick={() => setActiveTab('Lookbook')}
+                <button
+                    onClick={() => { exitSelectMode(); setActiveTab('Lookbook'); }}
                     className={clsx(
                         "flex-1 py-3 rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-2",
                         activeTab === 'Lookbook' ? "bg-sky-400 text-white shadow-sm" : "text-slate-400 hover:text-slate-600"
                     )}
                 >
-                    <Sparkles size={16} /> Lookbook
+                    <Sparkles size={16} /> Looks
+                </button>
+                <button
+                    onClick={() => { exitSelectMode(); setActiveTab('Inspo'); }}
+                    className={clsx(
+                        "flex-1 py-3 rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-2",
+                        activeTab === 'Inspo' ? "bg-pink-400 text-white shadow-sm" : "text-slate-400 hover:text-slate-600"
+                    )}
+                >
+                    <ShoppingBag size={16} /> Inspo
                 </button>
             </div>
 
-            <button 
-                onClick={() => setActiveTab('Archive')}
+            <button
+                onClick={() => { exitSelectMode(); setActiveTab('Archive'); }}
                 className="p-4 bg-white rounded-2xl shadow-sm border border-slate-100 text-slate-400 hover:text-slate-600 active:scale-95 transition-all"
                 title="Open Archive"
             >
@@ -292,21 +402,44 @@ export const Closet: React.FC = () => {
       ) : (
          <div className="flex justify-between items-center mb-6 sticky top-2 z-40 bg-orange-50/95 backdrop-blur py-2">
               <div className="flex items-center gap-2">
-                   <button 
-                        onClick={() => setActiveTab('Closet')}
+                   <button
+                        onClick={() => { exitSelectMode(); setActiveTab('Closet'); }}
                         className="p-2 bg-white text-slate-800 rounded-full shadow-sm hover:bg-slate-50 transition-colors"
                    >
                        <ChevronLeft size={24} />
                    </button>
-                   <h1 className="text-2xl text-slate-800 font-serif">The Archive</h1>
+                   <h1 className="text-2xl text-slate-800 font-serif">
+                       {isSelectMode ? `${selectedIds.size} Selected` : 'The Archive'}
+                   </h1>
               </div>
-              <span className="text-sm font-bold text-slate-400 bg-white px-3 py-1 rounded-full shadow-sm border border-slate-100">
-                  {filteredItems?.length || 0} Items
-              </span>
+              <div className="flex items-center gap-2">
+                  {!isSelectMode && (
+                      <span className="text-sm font-bold text-slate-400 bg-white px-3 py-1 rounded-full shadow-sm border border-slate-100">
+                          {filteredItems?.length || 0} Items
+                      </span>
+                  )}
+                  {filteredItems && filteredItems.length > 0 && (
+                      <button
+                          onClick={() => isSelectMode ? exitSelectMode() : setIsSelectMode(true)}
+                          className={clsx(
+                              "px-3 py-1 rounded-full text-sm font-bold transition-all shadow-sm",
+                              isSelectMode
+                                  ? "bg-slate-800 text-white"
+                                  : "bg-white text-sky-500 border border-slate-100 hover:bg-sky-50"
+                          )}
+                      >
+                          {isSelectMode ? 'Cancel' : 'Select'}
+                      </button>
+                  )}
+              </div>
          </div>
       )}
 
-      {activeTab === 'Lookbook' ? (
+      {activeTab === 'Inspo' ? (
+        <div className="animate-in fade-in slide-in-from-bottom-2">
+          <ShopInspo />
+        </div>
+      ) : activeTab === 'Lookbook' ? (
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2">
              <div className="flex justify-between items-baseline mb-2">
                 <h1 className="text-3xl text-slate-800 font-serif">Saved Looks</h1>
@@ -375,11 +508,30 @@ export const Closet: React.FC = () => {
         <div className="animate-in fade-in slide-in-from-bottom-2">
             
             {activeTab !== 'Archive' && (
-                <div className="flex justify-between items-baseline mb-6">
-                    <h1 className="text-3xl text-slate-800 font-serif">The Closet</h1>
-                    <span className="text-sm font-bold text-slate-400 bg-white px-3 py-1 rounded-full shadow-sm">
-                        {filteredItems?.length || 0} Items
-                    </span>
+                <div className="flex justify-between items-center mb-6">
+                    <h1 className="text-3xl text-slate-800 font-serif">
+                        {isSelectMode ? `${selectedIds.size} Selected` : 'The Closet'}
+                    </h1>
+                    <div className="flex items-center gap-2">
+                        {!isSelectMode && (
+                            <span className="text-sm font-bold text-slate-400 bg-white px-3 py-1 rounded-full shadow-sm">
+                                {filteredItems?.length || 0} Items
+                            </span>
+                        )}
+                        {filteredItems && filteredItems.length > 0 && (
+                            <button
+                                onClick={() => isSelectMode ? exitSelectMode() : setIsSelectMode(true)}
+                                className={clsx(
+                                    "px-3 py-1 rounded-full text-sm font-bold transition-all shadow-sm",
+                                    isSelectMode
+                                        ? "bg-slate-800 text-white"
+                                        : "bg-white text-sky-500 border border-slate-100 hover:bg-sky-50"
+                                )}
+                            >
+                                {isSelectMode ? 'Cancel' : 'Select'}
+                            </button>
+                        )}
+                    </div>
                 </div>
             )}
 
@@ -395,32 +547,69 @@ export const Closet: React.FC = () => {
                     />
                 </div>
 
-                <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2 -mx-6 px-6">
-                    <button
-                        onClick={() => setFilterCategory('All')}
-                        className={clsx(
-                            "whitespace-nowrap px-5 py-2.5 rounded-full text-sm font-bold transition-all shadow-sm border border-transparent",
-                            filterCategory === 'All' 
-                                ? "bg-sky-400 text-white shadow-md" 
-                                : "bg-white text-slate-500 hover:bg-slate-50"
-                        )}
-                    >
-                        All
-                    </button>
-                    {Object.values(Category).map(cat => (
+                <div className="relative">
+                    <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2 -mx-6 px-6">
                         <button
-                            key={cat}
-                            onClick={() => setFilterCategory(cat)}
+                            onClick={() => setFilterCategory('All')}
                             className={clsx(
                                 "whitespace-nowrap px-5 py-2.5 rounded-full text-sm font-bold transition-all shadow-sm border border-transparent",
-                                filterCategory === cat
-                                    ? "bg-sky-400 text-white shadow-md" 
+                                filterCategory === 'All'
+                                    ? "bg-sky-400 text-white shadow-md"
                                     : "bg-white text-slate-500 hover:bg-slate-50"
                             )}
                         >
-                            {cat}
+                            All
                         </button>
-                    ))}
+                        {Object.values(Category).map(cat => (
+                            <button
+                                key={cat}
+                                onClick={() => setFilterCategory(cat)}
+                                className={clsx(
+                                    "whitespace-nowrap px-5 py-2.5 rounded-full text-sm font-bold transition-all shadow-sm border border-transparent",
+                                    filterCategory === cat
+                                        ? "bg-sky-400 text-white shadow-md"
+                                        : "bg-white text-slate-500 hover:bg-slate-50"
+                                )}
+                            >
+                                {cat}
+                            </button>
+                        ))}
+                    </div>
+                    <div className="absolute right-0 top-0 bottom-2 w-12 bg-gradient-to-l from-orange-50 to-transparent pointer-events-none"></div>
+                </div>
+
+                <div className="flex flex-col gap-2">
+                    <div className="flex items-center gap-2 px-1 text-slate-400 text-xs font-bold uppercase tracking-wider">
+                        <Calendar size={12} />
+                        <span>Season</span>
+                    </div>
+                    <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2 -mx-6 px-6">
+                        <button
+                            onClick={() => setFilterSeason('All')}
+                            className={clsx(
+                                "whitespace-nowrap px-3 py-1.5 rounded-lg text-xs font-bold transition-all border",
+                                filterSeason === 'All'
+                                    ? "bg-slate-800 text-white border-slate-800 shadow-sm"
+                                    : "bg-white text-slate-500 border-slate-200 hover:border-slate-300"
+                            )}
+                        >
+                            All
+                        </button>
+                        {Object.values(Season).filter(s => s !== Season.All).map(season => (
+                            <button
+                                key={season}
+                                onClick={() => setFilterSeason(season)}
+                                className={clsx(
+                                    "whitespace-nowrap px-3 py-1.5 rounded-lg text-xs font-bold transition-all border",
+                                    filterSeason === season
+                                        ? "bg-slate-800 text-white border-slate-800 shadow-sm"
+                                        : "bg-white text-slate-500 border-slate-200 hover:border-slate-300"
+                                )}
+                            >
+                                {season}
+                            </button>
+                        ))}
+                    </div>
                 </div>
 
                 {items && items.length > 0 && availableBrands.length > 0 && (
@@ -550,9 +739,61 @@ export const Closet: React.FC = () => {
           </div>
       )}
 
-      <ItemDetailModal 
-        item={selectedItem} 
-        onClose={() => setSelectedItem(null)} 
+      {isSelectMode && (
+          <div className="fixed bottom-20 left-0 right-0 z-[60] px-4 animate-in slide-in-from-bottom-4 fade-in duration-200">
+              <div className="max-w-md mx-auto bg-white rounded-2xl shadow-xl border border-slate-100 p-3 flex items-center gap-2">
+                  <button
+                      onClick={handleSelectAll}
+                      className={clsx(
+                          "flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-sm font-bold transition-all",
+                          filteredItems && selectedIds.size === filteredItems.length && filteredItems.length > 0
+                              ? "bg-sky-50 text-sky-600"
+                              : "bg-slate-50 text-slate-500 hover:bg-slate-100"
+                      )}
+                  >
+                      {filteredItems && selectedIds.size === filteredItems.length && filteredItems.length > 0
+                          ? <CheckSquare size={16} />
+                          : <Square size={16} />
+                      }
+                      All
+                  </button>
+
+                  <div className="flex-1" />
+
+                  <button
+                      onClick={handleBatchArchive}
+                      disabled={selectedIds.size === 0}
+                      className={clsx(
+                          "flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-bold transition-all",
+                          selectedIds.size > 0
+                              ? "bg-sky-400 text-white shadow-sm hover:bg-sky-500 active:scale-95"
+                              : "bg-slate-100 text-slate-300 cursor-not-allowed"
+                      )}
+                  >
+                      {activeTab === 'Archive' ? <RotateCcw size={16} /> : <Archive size={16} />}
+                      {activeTab === 'Archive' ? 'Restore' : 'Archive'}
+                  </button>
+
+                  <button
+                      onClick={handleBatchDelete}
+                      disabled={selectedIds.size === 0}
+                      className={clsx(
+                          "flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-bold transition-all",
+                          selectedIds.size > 0
+                              ? "bg-red-500 text-white shadow-sm hover:bg-red-600 active:scale-95"
+                              : "bg-slate-100 text-slate-300 cursor-not-allowed"
+                      )}
+                  >
+                      <Trash2 size={16} />
+                      Delete
+                  </button>
+              </div>
+          </div>
+      )}
+
+      <ItemDetailModal
+        item={selectedItem}
+        onClose={() => setSelectedItem(null)}
         onToggleArchive={handleToggleArchive}
       />
     </div>

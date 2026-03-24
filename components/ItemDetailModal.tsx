@@ -239,6 +239,9 @@ export const ItemDetailModal: React.FC<Props> = ({ item, onClose, onToggleArchiv
                     <div className="mb-6">
                         <p className="text-lg font-bold text-slate-500">{item.brand}</p>
                         <p className="text-xs font-medium text-slate-400 mt-1">Added on {formatDate(item.dateAdded)}</p>
+                        {(item.wearCount ?? 0) > 0 && (
+                            <p className="text-xs font-bold text-orange-400 mt-1">Worn {item.wearCount} time{item.wearCount !== 1 ? 's' : ''}</p>
+                        )}
                     </div>
                     
                     <div className="flex gap-2 mb-8 flex-wrap">

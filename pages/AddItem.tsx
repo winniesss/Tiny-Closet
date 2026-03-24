@@ -1,14 +1,16 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Camera, Loader2, X, ChevronLeft, ChevronRight, Trash2, Sparkles, AlertTriangle, FileText, Crop as CropIcon, RotateCw, Check, RefreshCw, ScanLine, Scan } from 'lucide-react';
-import { analyzeClothingImage } from '../services/geminiService';
+import { Camera, Loader2, X, ChevronLeft, ChevronRight, Trash2, Sparkles, AlertTriangle, FileText, Crop as CropIcon, RotateCw, Check, RefreshCw, ScanLine, Scan, ImagePlus, Maximize } from 'lucide-react';
+import { analyzeClothingImage, findBetterItemImage } from '../services/geminiService';
 import { db } from '../db';
 import { ClothingItem, Category, Season } from '../types';
+import { useActiveChild } from '../hooks/useActiveChild';
 import clsx from 'clsx';
 
 export const AddItem: React.FC = () => {
   const navigate = useNavigate();
+  const { activeChildId } = useActiveChild();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   
@@ -20,7 +22,15 @@ export const AddItem: React.FC = () => {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [lastAnalysisImage, setLastAnalysisImage] = useState<string | null>(null);
   
-  // --- NEW CROP STATE ---
+  // --- CROP STATE ---
+  type CropMode = 'free' | '1:1' | '4:3' | '3:4';
+  const cropModes: { mode: CropMode; label: string; ratio: number | null }[] = [
+    { mode: 'free', label: 'Free', ratio: null },
+    { mode: '1:1', label: '1:1', ratio: 1 },
+    { mode: '4:3', label: '4:3', ratio: 4 / 3 },
+    { mode: '3:4', label: '3:4', ratio: 3 / 4 },
+  ];
+  const [cropMode, setCropMode] = useState<CropMode>('free');
   const [maskDims, setMaskDims] = useState({ w: 0, h: 0 }); // The size of the crop window
   const [imgState, setImgState] = useState({ x: 0, y: 0, scale: 1, rotate: 0 }); // Image transform relative to center
   
@@ -43,9 +53,21 @@ export const AddItem: React.FC = () => {
   const [rescanMenuOpen, setRescanMenuOpen] = useState(false);
   const [isRefining, setIsRefining] = useState(false);
 
+  // HD Image Search State
+  const [hdSearching, setHdSearching] = useState(false);
+  const [hdSearchError, setHdSearchError] = useState<string | null>(null);
+
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [reviewItems, setReviewItems] = useState<Partial<ClothingItem>[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
+
+  // Clear HD search state when switching items
+  useEffect(() => {
+    setHdPreviewUrl(null);
+    setHdSourceUrl(null);
+    setHdSearchError(null);
+    setHdSearching(false);
+  }, [currentIndex]);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -61,6 +83,26 @@ export const AddItem: React.FC = () => {
       if (e.target) e.target.value = '';
     };
     reader.readAsDataURL(file);
+  };
+
+  const applyAspectRatio = (mode: CropMode) => {
+      setCropMode(mode);
+      const ratio = cropModes.find(m => m.mode === mode)?.ratio;
+      if (!ratio) return; // free mode — keep current dims
+      // Adjust mask to fit the ratio within current bounds
+      const maxW = window.innerWidth - 32;
+      const maxH = window.innerHeight - 200;
+      let newW = maskDims.w;
+      let newH = newW / ratio;
+      if (newH > maxH) {
+          newH = maxH;
+          newW = newH * ratio;
+      }
+      if (newW > maxW) {
+          newW = maxW;
+          newH = newW / ratio;
+      }
+      setMaskDims({ w: newW, h: newH });
   };
 
   // Initialize Crop State when entering Crop Mode
@@ -90,6 +132,7 @@ export const AddItem: React.FC = () => {
 
           setMaskDims({ w: mw, h: mh });
           setImgState({ x: 0, y: 0, scale: scale, rotate: 0 });
+          setCropMode('free');
           setStep('crop');
       };
       img.src = base64;
@@ -158,10 +201,26 @@ export const AddItem: React.FC = () => {
         // Min dimensions
         newW = Math.max(80, newW);
         newH = Math.max(80, newH);
-        
+
         // Constrain to screen width/height slightly
         if (newW > window.innerWidth - 32) newW = window.innerWidth - 32;
         if (newH > window.innerHeight - 200) newH = window.innerHeight - 200;
+
+        // Enforce aspect ratio if not free mode
+        const activeRatio = cropModes.find(m => m.mode === cropMode)?.ratio;
+        if (activeRatio) {
+            // Determine dominant axis from drag direction
+            const absDx = Math.abs(dx);
+            const absDy = Math.abs(dy);
+            if (absDx >= absDy) {
+                newH = newW / activeRatio;
+            } else {
+                newW = newH * activeRatio;
+            }
+            // Re-clamp after ratio adjustment
+            newW = Math.max(80, Math.min(newW, window.innerWidth - 32));
+            newH = Math.max(80, Math.min(newH, window.innerHeight - 200));
+        }
 
         setMaskDims({ w: newW, h: newH });
     }
@@ -169,11 +228,24 @@ export const AddItem: React.FC = () => {
     if (g.type === 'pan' && touches.length === 1) {
         const dx = touches[0].clientX - g.startTouches![0].x;
         const dy = touches[0].clientY - g.startTouches![0].y;
-        
+
+        let newX = g.startImg!.x + dx;
+        let newY = g.startImg!.y + dy;
+
+        // Bound panning so image can't leave the crop window entirely
+        if (imgRef.current) {
+            const imgW = imgRef.current.naturalWidth * g.startImg!.scale;
+            const imgH = imgRef.current.naturalHeight * g.startImg!.scale;
+            const maxPanX = (imgW + maskDims.w) / 2;
+            const maxPanY = (imgH + maskDims.h) / 2;
+            newX = Math.max(-maxPanX, Math.min(maxPanX, newX));
+            newY = Math.max(-maxPanY, Math.min(maxPanY, newY));
+        }
+
         setImgState(prev => ({
             ...prev,
-            x: g.startImg!.x + dx,
-            y: g.startImg!.y + dy
+            x: newX,
+            y: newY
         }));
     }
 
@@ -183,7 +255,7 @@ export const AddItem: React.FC = () => {
         
         setImgState(prev => ({
             ...prev,
-            scale: Math.max(0.1, g.startImg!.scale * scaleFactor)
+            scale: Math.min(5, Math.max(0.2, g.startImg!.scale * scaleFactor))
         }));
     }
   };
@@ -193,40 +265,39 @@ export const AddItem: React.FC = () => {
   };
 
   const confirmCrop = () => {
-    if (!imgRef.current) return;
+    if (!imgRef.current || !imgRef.current.naturalWidth) return;
 
+    const img = imgRef.current;
     const canvas = document.createElement('canvas');
     // Output at high resolution (2x visual size)
     const scaleFactor = 2;
     canvas.width = maskDims.w * scaleFactor;
     canvas.height = maskDims.h * scaleFactor;
-    
+
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
     ctx.fillStyle = '#FFFFFF';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    const img = imgRef.current;
-    
     ctx.save();
     ctx.scale(scaleFactor, scaleFactor);
-    
+
     // Move origin to center of canvas
     ctx.translate(maskDims.w / 2, maskDims.h / 2);
-    
+
     // Apply image transformations
     ctx.translate(imgState.x, imgState.y);
     ctx.rotate((imgState.rotate * Math.PI) / 180);
     ctx.scale(imgState.scale, imgState.scale);
-    
+
     // Draw image centered at origin
     ctx.drawImage(
-        img, 
-        -img.naturalWidth / 2, 
+        img,
+        -img.naturalWidth / 2,
         -img.naturalHeight / 2
     );
-    
+
     ctx.restore();
 
     const croppedBase64 = canvas.toDataURL('image/jpeg', 0.9);
@@ -253,15 +324,18 @@ export const AddItem: React.FC = () => {
 
   // --- ANALYSIS LOGIC ---
 
+  const [hdProgress, setHdProgress] = useState('');
+
   const startAnalysis = async (base64: string) => {
       setLastAnalysisImage(base64);
       setImagePreview(base64);
       setStep('analyzing');
       setAnalysisError(null);
+      setHdProgress('');
 
       try {
         const foundItems = await analyzeClothingImage(base64);
-        
+
         let initialItems: Partial<ClothingItem>[] = [];
 
         if (foundItems && foundItems.length > 0) {
@@ -278,13 +352,40 @@ export const AddItem: React.FC = () => {
           }];
         }
 
-        setReviewItems(initialItems);
+        // --- Auto-fetch HD images for each item ---
+        const itemsWithHD = await Promise.all(
+          initialItems.map(async (item, idx) => {
+            const query = [
+              item.brand && item.brand !== 'Unknown' ? item.brand : '',
+              item.description,
+              item.color,
+              item.category,
+            ].filter(Boolean).join(' ');
+
+            if (!query.trim() || query.length < 5) return item;
+
+            try {
+              setHdProgress(`Finding HD image ${idx + 1}/${initialItems.length}...`);
+              const result = await findBetterItemImage(query, item.image);
+              if (result.success && result.data?.imageUrl && result.data.imageUrl.startsWith('data:')) {
+                return { ...item, image: result.data.imageUrl };
+              }
+            } catch {
+              // HD fetch failed, keep original image
+            }
+            return item;
+          })
+        );
+
+        setReviewItems(itemsWithHD);
         setCurrentIndex(0);
+        setHdProgress('');
         setStep('review');
       } catch (err) {
         setAnalysisError("Could not identify clothing automatically.");
         setReviewItems([{ image: base64, dateAdded: Date.now(), seasons: [] }]);
         setCurrentIndex(0);
+        setHdProgress('');
         setStep('review');
       }
   };
@@ -319,6 +420,63 @@ export const AddItem: React.FC = () => {
       }
   };
 
+  // HD Image: stores found product page info
+  const [hdPreviewUrl, setHdPreviewUrl] = useState<string | null>(null);
+  const [hdSourceUrl, setHdSourceUrl] = useState<string | null>(null);
+
+  const handleFindHDImage = async () => {
+    const current = reviewItems[currentIndex];
+    if (!current) return;
+
+    const queryParts = [
+      current.brand && current.brand !== 'Unknown' ? current.brand : '',
+      current.description,
+      current.color,
+      current.category,
+    ].filter(Boolean);
+    const query = queryParts.join(' ');
+
+    setHdSearching(true);
+    setHdSearchError(null);
+    setHdPreviewUrl(null);
+    setHdSourceUrl(null);
+
+    try {
+      const result = await findBetterItemImage(query, current.image);
+      if (result.success && result.data?.imageUrl) {
+        // Got the HD image (base64 or URL)!
+        setHdPreviewUrl(result.data.imageUrl);
+        setHdSourceUrl(result.data.sourceUrl);
+      } else if (result.success && result.data?.sourceUrl) {
+        // Found product page but couldn't extract image
+        setHdSourceUrl(result.data.sourceUrl);
+        setHdSearchError('Could not extract image from product page.');
+      } else {
+        setHdSearchError(result.error || 'Product not found online');
+      }
+    } catch (e) {
+      console.error('HD image search failed', e);
+      setHdSearchError('Search failed. Try again.');
+    } finally {
+      setHdSearching(false);
+    }
+  };
+
+  const handleUseHDImage = () => {
+    if (!hdPreviewUrl) return;
+    const updatedItems = [...reviewItems];
+    updatedItems[currentIndex] = { ...updatedItems[currentIndex], image: hdPreviewUrl };
+    setReviewItems(updatedItems);
+    setHdPreviewUrl(null);
+    setHdSourceUrl(null);
+  };
+
+  const handleDismissHDPreview = () => {
+    setHdPreviewUrl(null);
+    setHdSourceUrl(null);
+    setHdSearchError(null);
+  };
+
   const handleUpdateCurrentItem = (field: keyof ClothingItem, value: any) => {
     const updatedItems = [...reviewItems];
     updatedItems[currentIndex] = { ...updatedItems[currentIndex], [field]: value };
@@ -349,7 +507,12 @@ export const AddItem: React.FC = () => {
   const handleSaveAll = async () => {
     const validItems = reviewItems.filter(i => i.category && i.image) as ClothingItem[];
     if (validItems.length > 0) {
-      await db.items.bulkAdd(validItems);
+      // Attach the active child's profileId to each item
+      const itemsWithProfile = validItems.map(item => ({
+        ...item,
+        profileId: activeChildId ?? undefined
+      }));
+      await db.items.bulkAdd(itemsWithProfile);
       navigate('/closet');
     } else {
       alert("Please ensure items have a category.");
@@ -359,14 +522,14 @@ export const AddItem: React.FC = () => {
   if (step === 'upload') {
     return (
       <div className="h-full flex flex-col bg-orange-50 relative pb-4">
-        <button 
+        <button
             onClick={() => navigate('/')}
-            className="absolute top-6 right-6 p-3 bg-white rounded-full text-slate-400 hover:text-slate-600 shadow-sm z-10"
+            className="absolute top-6 right-6 p-3 bg-white/80 backdrop-blur rounded-full text-slate-400 hover:text-slate-600 shadow-sm z-10"
         >
-            <X size={24} />
+            <X size={28} />
         </button>
 
-        <div className="flex-1 flex flex-col items-center justify-center p-8 text-center space-y-8">
+        <div className="flex-1 flex flex-col items-center justify-center min-h-[80vh] p-8 text-center space-y-8">
           <div className="w-28 h-28 bg-white rounded-[2rem] shadow-lg flex items-center justify-center text-sky-500 mb-2 transform rotate-3">
             <Camera size={56} strokeWidth={2} />
           </div>
@@ -535,10 +698,21 @@ export const AddItem: React.FC = () => {
               {/* Bottom Control Bar - Z-50 */}
               <div className="flex-none bg-zinc-900 px-6 pt-6 z-50 shadow-2xl pb-[calc(2rem+env(safe-area-inset-bottom))]">
                   <div className="max-w-md mx-auto">
-                      <div className="flex items-center justify-center gap-6 mb-6">
-                           <span className="text-white/60 text-xs font-bold uppercase tracking-wider bg-white/10 px-3 py-1 rounded-full">
-                               Pan, Zoom & Crop
-                           </span>
+                      <div className="flex items-center justify-center gap-2 mb-6">
+                          {cropModes.map(({ mode, label }) => (
+                              <button
+                                  key={mode}
+                                  onClick={() => applyAspectRatio(mode)}
+                                  className={`px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider transition-colors ${
+                                      cropMode === mode
+                                          ? 'bg-white text-black'
+                                          : 'bg-white/10 text-white/60 hover:bg-white/20'
+                                  }`}
+                              >
+                                  {mode === 'free' ? <Maximize size={14} className="inline -mt-0.5 mr-1" /> : null}
+                                  {label}
+                              </button>
+                          ))}
                       </div>
 
                       <div className="flex justify-between items-center gap-4">
@@ -581,7 +755,7 @@ export const AddItem: React.FC = () => {
           </div>
         </div>
         <h2 className="text-3xl text-slate-800 mb-2">Analyzing...</h2>
-        <p className="text-slate-500 font-bold">Scanning for clothes...</p>
+        <p className="text-slate-500 font-bold">{hdProgress || 'Scanning for clothes...'}</p>
       </div>
     );
   }
@@ -690,13 +864,62 @@ export const AddItem: React.FC = () => {
                     </button>
                 </div>
 
-                <button 
+                <button
                      onClick={handleDeleteCurrent}
                      className="absolute top-6 right-6 p-3 bg-white/90 backdrop-blur rounded-xl text-slate-400 hover:text-red-500 shadow-sm transition-colors"
                      title="Remove Item"
                 >
                      <Trash2 size={20} />
                 </button>
+
+                {/* HD Image Search Loading Overlay */}
+                {hdSearching && (
+                    <div className="absolute inset-0 bg-white/50 backdrop-blur-sm flex flex-col items-center justify-center z-40 gap-2">
+                         <Loader2 className="animate-spin text-sky-500" size={32} />
+                         <span className="text-xs font-bold text-sky-600">Finding HD image...</span>
+                    </div>
+                )}
+
+                {/* HD Image Preview Overlay */}
+                {hdPreviewUrl && (
+                    <div className="absolute inset-0 bg-white flex flex-col items-center justify-center z-40 p-4 gap-3">
+                         <div className="bg-green-50 w-10 h-10 rounded-full flex items-center justify-center text-green-500">
+                             <Check size={22} />
+                         </div>
+                         <p className="text-xs font-bold text-green-600">HD Image Found!</p>
+                         <img
+                           src={hdPreviewUrl}
+                           alt="HD Preview"
+                           className="max-w-full max-h-[55%] object-contain rounded-xl shadow-md"
+                         />
+                         <div className="flex gap-3">
+                             <button
+                                 onClick={handleDismissHDPreview}
+                                 className="px-5 py-2.5 bg-slate-100 text-slate-600 font-bold rounded-full text-sm hover:bg-slate-200 transition-colors"
+                             >
+                                 Keep Original
+                             </button>
+                             <button
+                                 onClick={handleUseHDImage}
+                                 className="px-5 py-2.5 bg-sky-400 text-white font-bold rounded-full text-sm hover:bg-sky-500 transition-colors shadow-md"
+                             >
+                                 Use This Image
+                             </button>
+                         </div>
+                    </div>
+                )}
+           </div>
+
+           {/* Manual HD retry button (in case auto-fetch missed) */}
+           <div className="mt-3 flex items-center justify-center gap-2">
+               <button
+                   onClick={handleFindHDImage}
+                   disabled={hdSearching}
+                   className="flex items-center gap-2 px-3 py-1.5 text-slate-400 font-bold rounded-full text-[11px] hover:text-sky-500 hover:bg-sky-50 transition-all disabled:opacity-50"
+               >
+                   <ImagePlus size={12} />
+                   {hdSearching ? 'Searching...' : 'Retry HD'}
+               </button>
            </div>
         </div>
 

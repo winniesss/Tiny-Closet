@@ -3,19 +3,20 @@ import React, { useEffect, useState, useRef } from 'react';
 import { db } from '../db';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { ChildProfile } from '../types';
-import { Camera, User, Download, UploadCloud, CheckCircle2, AlertCircle, HelpCircle, RefreshCw, Settings as SettingsIcon, Info } from 'lucide-react';
+import { Camera, User, Download, UploadCloud, CheckCircle2, AlertCircle, HelpCircle, RefreshCw, Settings as SettingsIcon, Info, Plus, Trash2, Users } from 'lucide-react';
+import { useActiveChild } from '../hooks/useActiveChild';
 import clsx from 'clsx';
 
 const CURRENT_VERSION = '1.8';
 
 export const Settings: React.FC = () => {
-  const profiles = useLiveQuery(() => db.profile.toArray());
+  const { profiles, activeChild, activeChildId, setActiveChildId } = useActiveChild();
   const [editing, setEditing] = useState<Partial<ChildProfile>>({});
   const [message, setMessage] = useState('');
   const [importError, setImportError] = useState('');
   const [activeTab, setActiveTab] = useState<'config' | 'faq'>('config');
   const [hasNewVersion, setHasNewVersion] = useState(false);
-  
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
 
@@ -39,10 +40,10 @@ export const Settings: React.FC = () => {
   ];
 
   useEffect(() => {
-    if (profiles && profiles.length > 0) {
-      setEditing(profiles[0]);
+    if (activeChild) {
+      setEditing(activeChild);
     }
-  }, [profiles]);
+  }, [activeChild]);
 
   // Check for new version hint
   useEffect(() => {
@@ -210,7 +211,50 @@ export const Settings: React.FC = () => {
       {activeTab === 'config' ? (
         <div className="animate-in fade-in slide-in-from-left-4 duration-300">
             <div className="mb-6 bg-white p-6 rounded-[2.5rem] shadow-sm">
-                <h2 className="text-lg text-slate-800 mb-6 font-serif">Child Profile</h2>
+                <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-lg text-slate-800 font-serif">Child Profile</h2>
+                    <button
+                        onClick={async () => {
+                            const newId = await db.profile.add({
+                                name: 'New Child',
+                                birthDate: new Date().toISOString().split('T')[0]
+                            });
+                            setActiveChildId(newId as number);
+                            setMessage('New child added!');
+                            setTimeout(() => setMessage(''), 3000);
+                        }}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-sky-50 text-sky-500 rounded-full text-xs font-bold hover:bg-sky-100 transition-colors"
+                    >
+                        <Plus size={14} /> Add Child
+                    </button>
+                </div>
+
+                {/* Child Switcher Tabs */}
+                {profiles.length > 1 && (
+                    <div className="flex gap-2 overflow-x-auto no-scrollbar pb-4 mb-4 -mx-2 px-2">
+                        {profiles.map(p => (
+                            <button
+                                key={p.id}
+                                onClick={() => setActiveChildId(p.id!)}
+                                className={clsx(
+                                    "flex items-center gap-2 shrink-0 px-4 py-2 rounded-full text-xs font-bold transition-all border",
+                                    activeChildId === p.id
+                                        ? "bg-sky-400 text-white border-sky-400 shadow-sm"
+                                        : "bg-white text-slate-400 border-slate-200 hover:border-slate-300"
+                                )}
+                            >
+                                <div className="w-6 h-6 rounded-full bg-sky-200 text-sky-700 flex items-center justify-center text-[10px] font-bold overflow-hidden">
+                                    {p.avatar ? (
+                                        <img src={p.avatar} alt="" className="w-full h-full object-cover" />
+                                    ) : (
+                                        p.name[0]
+                                    )}
+                                </div>
+                                {p.name}
+                            </button>
+                        ))}
+                    </div>
+                )}
                 
                 <div className={clsx("flex transition-all duration-300", isSetupMode ? "flex-col items-center gap-6" : "flex-row items-start gap-4")}>
                     <div className="flex flex-col items-center shrink-0">
@@ -276,13 +320,38 @@ export const Settings: React.FC = () => {
                     </div>
                 </div>
 
-                <button 
+                <button
                     onClick={handleSave}
                     className="w-full bg-sky-400 text-white font-bold py-5 rounded-full shadow-lg hover:scale-[1.02] transition-transform text-lg mt-6 flex justify-center items-center gap-2"
                 >
                     {message === 'Settings Saved!' ? <CheckCircle2 size={20} /> : null}
                     {message || 'Save Changes'}
                 </button>
+
+                {/* Delete Child Button */}
+                {profiles.length > 1 && (
+                    <button
+                        onClick={async () => {
+                            if (!editing.id) return;
+                            if (window.confirm(`Delete ${editing.name}'s profile and all their clothing items? This cannot be undone.`)) {
+                                // Delete items belonging to this child
+                                await db.items.where('profileId').equals(editing.id).delete();
+                                await db.outfitLikes.where('profileId').equals(editing.id).delete();
+                                await db.profile.delete(editing.id);
+                                // Switch to another child
+                                const remaining = profiles.filter(p => p.id !== editing.id);
+                                if (remaining.length > 0) {
+                                    setActiveChildId(remaining[0].id!);
+                                }
+                                setMessage('Profile deleted');
+                                setTimeout(() => setMessage(''), 3000);
+                            }
+                        }}
+                        className="w-full mt-3 py-3 text-red-400 text-sm font-bold flex items-center justify-center gap-2 hover:text-red-500 transition-colors"
+                    >
+                        <Trash2 size={16} /> Delete This Child's Profile
+                    </button>
+                )}
             </div>
 
             <div className="mb-8 bg-white p-6 rounded-[2.5rem] shadow-sm">
@@ -321,10 +390,14 @@ export const Settings: React.FC = () => {
             </div>
 
             <div className="pt-2 px-2">
-                <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4 ml-1">Danger Zone</h2>
-                <button 
+                <div className="flex items-center gap-2 mb-1 ml-1">
+                    <AlertCircle size={16} className="text-red-500" />
+                    <h2 className="text-sm font-bold text-red-500 uppercase tracking-widest">Danger Zone</h2>
+                </div>
+                <p className="text-xs text-red-400 mb-4 ml-1">This action cannot be undone.</p>
+                <button
                     onClick={handleDeleteAll}
-                    className="w-full text-red-500 text-sm font-bold bg-white border border-red-100 hover:bg-red-50 py-4 rounded-2xl transition-colors"
+                    className="w-full text-red-600 text-sm font-bold bg-red-50 border-2 border-red-200 hover:bg-red-100 py-4 rounded-2xl transition-colors"
                 >
                     Reset Everything
                 </button>

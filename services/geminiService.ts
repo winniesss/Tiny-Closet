@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type, Schema } from "@google/genai";
-import { Category, Season } from "../types";
+import { Category, Season, AnalyzedShopItem, ClothingItem, MatchResult } from "../types";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
@@ -307,10 +307,16 @@ export const analyzeClothingImage = async (base64Image: string): Promise<Analyze
          // Filter 1: Invalid coordinates
          if (height <= 0 || width <= 0) return item;
 
-         // Filter 2: Extreme Aspect Ratios (Noise reduction)
+         // Filter 2: Too small — likely noise or misdetection
+         if (height < 50 || width < 50) return item;
+
+         // Filter 3: Extreme Aspect Ratios (Noise reduction)
          const ratio = width / height;
          // Reject very thin strips (likely text rows) or very tall thin lines
-         if (ratio > 5 || ratio < 0.2) return item; 
+         if (ratio > 5 || ratio < 0.2) return item;
+
+         // Filter 4: Coordinates out of expected range
+         if (ymin < 0 || xmin < 0 || ymax > 1000 || xmax > 1000) return item; 
          
         try {
           // Note: We intentionally use the original 'base64Image' here for the final crop
@@ -334,8 +340,9 @@ export const analyzeClothingImage = async (base64Image: string): Promise<Analyze
 };
 
 /**
- * Searches for a better product image online using Google Search.
- * Supports multimodal input (text + image) for better accuracy.
+ * Searches for a product online and extracts the HD image automatically.
+ * Step 1: Gemini + Google Search → finds the product page URL
+ * Step 2: Local server proxy → fetches the page, extracts og:image, returns base64
  */
 export const findBetterItemImage = async (query: string, base64Image?: string): Promise<ImageSearchResult> => {
   if (!query.trim()) {
@@ -347,127 +354,276 @@ export const findBetterItemImage = async (query: string, base64Image?: string): 
   }
 
   try {
+    // --- Step 1: Gemini finds the product page URL ---
     const parts: any[] = [];
-    
-    // If an image is provided, include it in the request to help Gemini "see" what we are looking for
+
     if (base64Image) {
-        // Optimize image for the search query too
-        const optimized = await prepareImageForAPI(base64Image);
-        const cleanBase64 = optimized.split(',')[1] || optimized;
-        parts.push({
-            inlineData: {
-                mimeType: "image/jpeg",
-                data: cleanBase64
-            }
-        });
+      const optimized = await prepareImageForAPI(base64Image);
+      const cleanBase64 = optimized.split(',')[1] || optimized;
+      parts.push({
+        inlineData: { mimeType: "image/jpeg", data: cleanBase64 }
+      });
     }
 
     parts.push({
-      text: `You are a smart shopping assistant.
-        User Input: "${query}"
-        
-        GOAL: Find a **Google Images Thumbnail** URL for this product.
-        
-        CONTEXT: The user is on a mobile app that cannot load images from retailer websites due to CORS/Hotlink blocking. 
-        We **MUST** use the Google cached version (starting with 'https://encrypted-tbn' or 'https://lh3.googleusercontent').
+      text: `Find the product page URL for this clothing item: "${query}".
 
-        INSTRUCTIONS:
-        1. Search for "${query}".
-        2. Scan the search results.
-        3. **PRIORITY**: Extract an 'encrypted-tbn' image URL. This is the most important step.
-        4. If you find a 'encrypted-tbn' URL, use it as 'imageUrl'.
-        5. If you absolutely cannot find a thumbnail, return null for 'imageUrl'. Do NOT return a direct retailer link (like amazon.com/img.jpg) as it will fail.
-        6. Always provide the 'sourceUrl' (the product page URL) so the user can visit it.
-        
-        JSON Response Format:
-        \`\`\`json
-        {
-          "imageUrl": "https://encrypted-tbn0.gstatic.com/images?q=...", 
-          "sourceUrl": "https://www.example.com/product/123"
-        }
-        \`\`\`
-        `
+Search for it on Google. Return the product page URL from a retailer or brand website.
+
+Return JSON: { "sourceUrl": "https://..." }
+Only return the product page URL, nothing else.`
     });
 
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
-      contents: {
-        parts: parts
-      },
+      contents: { parts },
       config: {
-        tools: [{googleSearch: {}}],
+        tools: [{ googleSearch: {} }],
       }
     });
 
-    let text = response.text || '';
-    
-    if (!text) {
+    let sourceUrl = '';
+    const text = response.text || '';
+
+    if (text) {
+      const cleaned = text.replace(/```json/g, '').replace(/```/g, '').trim();
+      const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        try {
+          const data = JSON.parse(jsonMatch[0]);
+          if (data.sourceUrl && data.sourceUrl.startsWith('http')) {
+            sourceUrl = data.sourceUrl;
+          }
+        } catch { /* ignore */ }
+      }
+      if (!sourceUrl) {
+        const urlMatch = cleaned.match(/https?:\/\/[^\s"'<>]+/);
+        if (urlMatch) sourceUrl = urlMatch[0];
+      }
+    }
+
+    // Fallback: grounding chunks
+    if (!sourceUrl) {
+      const chunks = (response as any).candidates?.[0]?.groundingMetadata?.groundingChunks;
+      if (chunks?.length > 0) {
+        const web = chunks.find((c: any) => c.web?.uri)?.web;
+        if (web?.uri) sourceUrl = web.uri;
+      }
+    }
+
+    if (!sourceUrl) {
       return {
         success: false,
-        error: "No response from AI service.",
-        suggestion: "Please try searching again in a moment."
+        error: "Could not find this product online.",
+        suggestion: "Try being more specific with brand + product name."
       };
     }
 
-    // Clean up markdown code blocks if present
-    text = text.replace(/```json/g, '').replace(/```/g, '').trim();
+    // --- Step 2: Scrape product page via local server proxy ---
+    const scrapeRes = await fetch(`http://localhost:3001/api/scrape-image?url=${encodeURIComponent(sourceUrl)}`);
+    const scrapeData = await scrapeRes.json();
 
-    // Parse JSON
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-        try {
-            const data = JSON.parse(jsonMatch[0]);
-            
-            // Validate URL format
-            let imgUrl = data.imageUrl;
-            if (imgUrl && (!imgUrl.startsWith('http') || imgUrl.length < 10)) imgUrl = null;
-
-            let srcUrl = data.sourceUrl;
-            if (srcUrl && !srcUrl.startsWith('http')) srcUrl = null;
-
-            // If Gemini returned null for image but found a source, try to fallback or just return what we have
-            if (imgUrl || srcUrl) {
-                return {
-                  success: true,
-                  data: {
-                    imageUrl: imgUrl || '', // UI will handle empty/null
-                    sourceUrl: srcUrl || ''
-                  }
-                };
-            }
-        } catch (e) {
-            console.warn("JSON parse error", e);
-        }
+    if (scrapeData.imageUrl && scrapeData.imageUrl.startsWith('data:')) {
+      // Got base64 image directly — perfect
+      return {
+        success: true,
+        data: { imageUrl: scrapeData.imageUrl, sourceUrl }
+      };
+    } else if (scrapeData.imageUrl) {
+      // Got a URL but not base64 — still usable
+      return {
+        success: true,
+        data: { imageUrl: scrapeData.imageUrl, sourceUrl }
+      };
     }
 
-    // Fallback: Check grounding chunks for real links if JSON failed or was empty
-    const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
-    if (chunks && chunks.length > 0) {
-        // Try to find a chunk that looks like a product page
-        const firstWeb = chunks.find((c: any) => c.web?.uri)?.web;
-        if (firstWeb) {
-            return {
-                success: true,
-                data: {
-                    imageUrl: '', // No image found in metadata usually
-                    sourceUrl: firstWeb.uri
-                }
-            };
-        }
-    }
-    
+    // Scraping failed, return source URL as fallback
     return {
-      success: false,
-      error: "No matching items found online.",
-      suggestion: "Try simplifying the name (e.g. 'Pink Floral Pajamas')."
+      success: true,
+      data: { imageUrl: '', sourceUrl }
     };
 
   } catch (error: any) {
     console.error("Online Search Error:", error);
     return {
       success: false,
-      error: "Connection failed.",
+      error: "Search failed. " + (error.message || ''),
       suggestion: "Please try again."
     };
   }
+};
+
+const shopItemSchema: Schema = {
+  type: Type.OBJECT,
+  properties: {
+    items: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          category: {
+            type: Type.STRING,
+            enum: [
+              Category.Top,
+              Category.Bottom,
+              Category.FullBody,
+              Category.Romper,
+              Category.Overall,
+              Category.Shoes,
+              Category.Outerwear,
+              Category.Vest,
+              Category.Accessory,
+              Category.Tights,
+              Category.Pajamas,
+              Category.Swimwear,
+              Category.Socks
+            ],
+            description: "Category of the clothing item."
+          },
+          color: { type: Type.STRING, description: "Primary color of the item." },
+          seasons: {
+            type: Type.ARRAY,
+            items: { type: Type.STRING, enum: [Season.Spring, Season.Summer, Season.Fall, Season.Winter, Season.All] },
+            description: "Applicable seasons for this item."
+          },
+          description: { type: Type.STRING, description: "Brief description of the item (e.g. 'Striped cotton t-shirt')." }
+        },
+        required: ["category", "color", "seasons", "description"]
+      },
+      description: "List of all individual clothing items detected in the flat-lay outfit."
+    }
+  }
+};
+
+/**
+ * Analyzes a flat-lay outfit photo from a kids clothing shop post.
+ * Detects all individual clothing items in the composition and returns structured data.
+ */
+export const analyzeShopPost = async (imageBase64: string): Promise<AnalyzedShopItem[]> => {
+  try {
+    const optimizedImage = await prepareImageForAPI(imageBase64);
+    const cleanBase64 = optimizedImage.split(',')[1] || optimizedImage;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: {
+        parts: [
+          {
+            inlineData: {
+              mimeType: "image/jpeg",
+              data: cleanBase64
+            }
+          },
+          {
+            text: `This is a flat-lay outfit photo from a kids clothing shop. Detect ALL individual clothing items visible in this outfit composition. For each item, provide: category (one of: Top, Bottom, Full Body, Romper, Overall, Shoes, Outerwear, Vest, Accessory, Tights, Pajamas, Swimwear, Socks), primary color, applicable seasons (Spring, Summer, Fall, Winter, All Year), and a brief description.`
+          }
+        ]
+      },
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: shopItemSchema,
+        thinkingConfig: { thinkingBudget: 2048 },
+        systemInstruction: `You are an expert at analyzing kids clothing flat-lay photos. Identify every distinct garment and accessory in the image. Be precise with colors and categories. Return pure JSON.`,
+      }
+    });
+
+    const text = response.text;
+    if (!text) throw new Error("No response from AI");
+
+    const parsed = JSON.parse(text);
+    return parsed.items || [];
+  } catch (error) {
+    console.error("Shop Post Analysis Error:", error);
+    throw error;
+  }
+};
+
+/**
+ * Matches analyzed shop items against the user's closet using attribute-based scoring.
+ * No Gemini call — purely local comparison.
+ *
+ * Scoring:
+ *  - Same category: +50
+ *  - Overlapping season: +20
+ *  - Similar color: +30
+ */
+export const matchItemsToCloset = (shopItems: AnalyzedShopItem[], closetItems: ClothingItem[]): MatchResult[] => {
+  const normalizeColor = (c: string): string => c.toLowerCase().trim();
+
+  const colorsMatch = (shopColor: string, closetColor: string): boolean => {
+    const a = normalizeColor(shopColor);
+    const b = normalizeColor(closetColor);
+    if (a === b) return true;
+    // Loose matching: one contains the other (e.g. "blue" matches "light blue" or "navy blue")
+    if (a.includes(b) || b.includes(a)) return true;
+    // Handle common color aliases
+    const aliases: Record<string, string[]> = {
+      'navy': ['blue', 'dark blue', 'navy blue'],
+      'cream': ['white', 'off-white', 'ivory', 'beige'],
+      'grey': ['gray'],
+      'gray': ['grey'],
+      'maroon': ['dark red', 'burgundy'],
+      'burgundy': ['dark red', 'maroon'],
+      'pink': ['rose', 'blush'],
+      'tan': ['beige', 'khaki', 'camel'],
+      'beige': ['tan', 'khaki', 'cream'],
+    };
+    for (const [key, vals] of Object.entries(aliases)) {
+      if ((a === key || a.includes(key)) && (vals.some(v => b === v || b.includes(v)))) return true;
+      if ((b === key || b.includes(key)) && (vals.some(v => a === v || a.includes(v)))) return true;
+    }
+    return false;
+  };
+
+  const seasonsOverlap = (a: Season[], b: Season[]): boolean => {
+    if (a.includes(Season.All) || b.includes(Season.All)) return true;
+    return a.some(s => b.includes(s));
+  };
+
+  return shopItems.map(shopItem => {
+    const candidates: { id: number; score: number; reasons: string[] }[] = [];
+
+    for (const closetItem of closetItems) {
+      if (!closetItem.id) continue;
+
+      let score = 0;
+      const reasons: string[] = [];
+
+      // Category match
+      if (closetItem.category === shopItem.category) {
+        score += 50;
+        reasons.push(`same category (${shopItem.category})`);
+      } else {
+        continue; // Only consider items with the same category
+      }
+
+      // Season overlap
+      if (seasonsOverlap(shopItem.seasons, closetItem.seasons)) {
+        score += 20;
+        reasons.push('overlapping season');
+      }
+
+      // Color match
+      if (colorsMatch(shopItem.color, closetItem.color)) {
+        score += 30;
+        reasons.push(`similar color (${closetItem.color})`);
+      }
+
+      candidates.push({ id: closetItem.id, score, reasons });
+    }
+
+    // Sort by score descending, take top matches
+    candidates.sort((a, b) => b.score - a.score);
+    const topMatches = candidates.filter(c => c.score > 0);
+
+    return {
+      shopItemDescription: shopItem.description,
+      shopItemCategory: shopItem.category,
+      matchedClosetItemIds: topMatches.map(m => m.id),
+      matchScore: topMatches.length > 0 ? topMatches[0].score : 0,
+      matchReason: topMatches.length > 0
+        ? topMatches[0].reasons.join(', ')
+        : 'No matching items in closet',
+    };
+  });
 };
