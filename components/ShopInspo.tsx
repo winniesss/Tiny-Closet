@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
 import { ShopPost, AnalyzedShopItem, ClothingItem } from '../types';
@@ -156,15 +156,20 @@ export const ShopInspo: React.FC = () => {
   const [selectedPost, setSelectedPost] = useState<ShopPost | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Use a default "inspo" account — auto-created
-  const inspoAccount = useLiveQuery(async () => {
-    let account = await db.shopAccounts.where('handle').equals('_inspo').first();
-    if (!account) {
-      const id = await db.shopAccounts.add({ handle: '_inspo', displayName: 'My Inspo', profileId: activeChildId ?? undefined });
-      account = await db.shopAccounts.get(id);
-    }
-    return account;
+  // Auto-create inspo account on first load
+  useEffect(() => {
+    (async () => {
+      const existing = await db.shopAccounts.where('handle').equals('_inspo').first();
+      if (!existing) {
+        await db.shopAccounts.add({ handle: '_inspo', displayName: 'My Inspo', profileId: activeChildId ?? undefined });
+      }
+    })();
   }, [activeChildId]);
+
+  const inspoAccount = useLiveQuery(
+    () => db.shopAccounts.where('handle').equals('_inspo').first(),
+    [activeChildId]
+  );
 
   const posts = useLiveQuery(
     () => inspoAccount?.id
