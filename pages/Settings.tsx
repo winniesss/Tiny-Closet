@@ -182,14 +182,19 @@ export const Settings: React.FC = () => {
     e.target.value = ''; 
   };
 
-  const handleReload = () => {
-      const url = new URL(window.location.href);
-      if (url.pathname !== '/' && !url.pathname.endsWith('/index.html')) {
-          url.pathname = '/';
+  const handleReload = async () => {
+      // Clear all caches so the browser fetches fresh assets
+      if ('caches' in window) {
+          const keys = await caches.keys();
+          await Promise.all(keys.map(k => caches.delete(k)));
       }
-      url.hash = '';
-      url.search = '';
-      window.location.href = url.toString();
+      // Unregister service workers if any
+      if ('serviceWorker' in navigator) {
+          const regs = await navigator.serviceWorker.getRegistrations();
+          await Promise.all(regs.map(r => r.unregister()));
+      }
+      // Force reload from server (bypass browser cache)
+      window.location.reload();
   };
 
   // Check if user is in "First Time" mode (default name)
