@@ -54,7 +54,7 @@ const AppContent: React.FC = () => {
   const getTabClass = (activePath: string) => {
     const isActive = path === activePath;
     return clsx(
-      "absolute inset-0 w-full h-full overflow-y-auto overflow-x-hidden no-scrollbar bg-orange-50 pt-[env(safe-area-inset-top)] pb-[calc(6rem+env(safe-area-inset-bottom))]", 
+      "absolute inset-0 w-full h-full overflow-y-auto overflow-x-hidden no-scrollbar bg-orange-50 pt-[env(safe-area-inset-top)] pb-[calc(5rem+env(safe-area-inset-bottom))]", 
       isActive ? "z-10 opacity-100 visible pointer-events-auto" : "z-0 opacity-0 invisible pointer-events-none"
     );
   };

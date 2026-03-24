@@ -342,7 +342,7 @@ export const Closet: React.FC = () => {
 
   if (!items) {
       return (
-          <div className="p-6 pb-28 max-w-md mx-auto min-h-screen bg-orange-50 animate-pulse">
+          <div className="p-6 pb-4 max-w-md mx-auto min-h-screen bg-orange-50 animate-pulse">
              <div className="flex bg-slate-200 p-1.5 rounded-2xl shadow-sm mb-6 h-14"></div>
              <div className="h-8 w-48 bg-slate-200 rounded-lg mb-8"></div>
              <div className="h-12 bg-slate-200 rounded-2xl mb-8"></div>
@@ -357,7 +357,7 @@ export const Closet: React.FC = () => {
   }
 
   return (
-    <div className={clsx("p-6 max-w-md mx-auto min-h-screen bg-orange-50", isSelectMode ? "pb-44" : "pb-28")}>
+    <div className={clsx("p-6 max-w-md mx-auto min-h-screen bg-orange-50", isSelectMode ? "pb-44" : "pb-4")}>
       
       {activeTab !== 'Archive' ? (
         <div className="flex items-center gap-3 mb-6 sticky top-0 z-40 bg-orange-50 py-3 -mx-6 px-6">

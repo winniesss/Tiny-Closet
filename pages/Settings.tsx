@@ -185,7 +185,7 @@ export const Settings: React.FC = () => {
   const isSetupMode = !editing.name || editing.name === 'My Kid';
 
   return (
-    <div className="p-6 max-w-md mx-auto min-h-screen bg-orange-50 pb-28">
+    <div className="p-6 max-w-md mx-auto min-h-screen bg-orange-50 pb-4">
       <div className="flex justify-between items-center mb-8">
         <h1 className="text-3xl text-slate-800">Settings</h1>
         

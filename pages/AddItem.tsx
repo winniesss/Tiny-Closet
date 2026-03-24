@@ -763,7 +763,7 @@ export const AddItem: React.FC = () => {
   const currentItem = reviewItems[currentIndex];
 
   return (
-    <div className="min-h-full bg-orange-50 p-6 pb-28 max-w-md mx-auto">
+    <div className="min-h-full bg-orange-50 p-6 pb-4 max-w-md mx-auto">
       <header className="flex justify-between items-center mb-8">
         <h1 className="text-2xl text-slate-800">Review</h1>
         <button onClick={() => setStep('upload')} className="bg-white p-2 rounded-full text-slate-400 hover:text-slate-600 shadow-sm">

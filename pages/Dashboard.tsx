@@ -587,7 +587,7 @@ export const Dashboard: React.FC = () => {
   // Prevent flicker by showing skeleton if data is still loading (undefined)
   if (!allItems) {
     return (
-      <div className="p-6 pb-28 max-w-md mx-auto animate-pulse">
+      <div className="p-6 pb-4 max-w-md mx-auto animate-pulse">
         <header className="mb-8 pt-4 flex justify-between items-end">
             <div>
                 <div className="h-8 w-32 bg-slate-200 rounded-lg mb-2"></div>
@@ -606,7 +606,7 @@ export const Dashboard: React.FC = () => {
   }
 
   return (
-    <div className="p-6 pb-28 max-w-md mx-auto">
+    <div className="p-6 pb-4 max-w-md mx-auto">
       <header className="mb-4 pt-6 flex justify-between items-end">
         <div>
             <Logo />

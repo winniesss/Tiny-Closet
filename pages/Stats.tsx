@@ -21,7 +21,7 @@ export const Stats: React.FC = () => {
 
   if (items.length === 0) {
     return (
-      <div className="p-6 pb-28 max-w-md mx-auto min-h-screen bg-orange-50">
+      <div className="p-6 pb-4 max-w-md mx-auto min-h-screen bg-orange-50">
         <h1 className="text-3xl text-slate-800 mb-8">Closet Stats</h1>
 
         <div className="mb-8 bg-pink-200 p-8 rounded-[2.5rem] relative overflow-hidden shadow-sm">
@@ -64,7 +64,7 @@ export const Stats: React.FC = () => {
   const COLORS = ['#fb923c', '#38bdf8', '#f472b6', '#fcd34d', '#2dd4bf', '#a78bfa'];
 
   return (
-    <div className="p-6 pb-28 max-w-md mx-auto min-h-screen bg-orange-50">
+    <div className="p-6 pb-4 max-w-md mx-auto min-h-screen bg-orange-50">
       <h1 className="text-3xl text-slate-800 mb-8">Closet Stats</h1>
 
       <div className="mb-8 bg-pink-200 p-8 rounded-[2.5rem] relative overflow-hidden shadow-sm">
