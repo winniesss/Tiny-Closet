@@ -3,11 +3,12 @@ import React, { useEffect, useState, useRef } from 'react';
 import { db } from '../db';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { ChildProfile } from '../types';
+import { syncProfilesToCloud } from '../services/profileSync';
 import { Camera, User, Download, UploadCloud, CheckCircle2, AlertCircle, HelpCircle, RefreshCw, Settings as SettingsIcon, Info, Plus, Trash2, Users } from 'lucide-react';
 import { useActiveChild } from '../hooks/useActiveChild';
 import clsx from 'clsx';
 
-const CURRENT_VERSION = '2.0';
+const CURRENT_VERSION = '2.1';
 
 export const Settings: React.FC = () => {
   const { profiles, activeChild, activeChildId, setActiveChildId } = useActiveChild();
@@ -21,6 +22,13 @@ export const Settings: React.FC = () => {
   const importInputRef = useRef<HTMLInputElement>(null);
 
   const releaseNotes = [
+      {
+          version: "2.1",
+          changes: [
+              "New: Cloud sync — profile data now backs up to Firebase automatically.",
+              "Fix: No more re-entering child name after iOS clears browser storage.",
+          ]
+      },
       {
           version: "2.0",
           changes: [
@@ -78,6 +86,9 @@ export const Settings: React.FC = () => {
         birthDate: editing.birthDate,
         avatar: editing.avatar
       });
+      // Sync to cloud
+      const allProfiles = await db.profile.toArray();
+      syncProfilesToCloud(allProfiles);
       setMessage('Settings Saved!');
       setTimeout(() => setMessage(''), 3000);
     } else {
@@ -230,6 +241,9 @@ export const Settings: React.FC = () => {
                                 birthDate: new Date().toISOString().split('T')[0]
                             });
                             setActiveChildId(newId as number);
+                            // Sync to cloud
+                            const allProfiles = await db.profile.toArray();
+                            syncProfilesToCloud(allProfiles);
                             setMessage('New child added!');
                             setTimeout(() => setMessage(''), 3000);
                         }}
@@ -353,6 +367,9 @@ export const Settings: React.FC = () => {
                                 if (remaining.length > 0) {
                                     setActiveChildId(remaining[0].id!);
                                 }
+                                // Sync to cloud after deletion
+                                const allProfiles = await db.profile.toArray();
+                                syncProfilesToCloud(allProfiles);
                                 setMessage('Profile deleted');
                                 setTimeout(() => setMessage(''), 3000);
                             }

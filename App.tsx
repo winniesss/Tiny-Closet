@@ -10,6 +10,7 @@ import { Settings } from './pages/Settings';
 import { WeeklyPlanner } from './pages/WeeklyPlanner';
 import { SignUp } from './pages/SignUp';
 import { db } from './db';
+import { restoreProfilesFromCloud } from './services/profileSync';
 import clsx from 'clsx';
 
 const AppContent: React.FC = () => {
@@ -21,19 +22,32 @@ const AppContent: React.FC = () => {
   const isPlan = path === '/plan';
   const isSignUp = path === '/signup';
 
-  // Check onboarding status
+  // Check onboarding status — restore from cloud if local data was wiped by iOS
   useEffect(() => {
     const checkOnboarding = async () => {
         // If we are already on signup, don't redirect
         if (location.pathname === '/signup') return;
-        
+
         const onboarded = localStorage.getItem('tiny_closet_onboarded');
         if (!onboarded) {
-             // Double check DB to be safe (if they cleared cache but DB persists)
              try {
                 const profiles = await db.profile.toArray();
-                // If profile is missing or is the default 'My Kid' seed
-                if (profiles.length === 0 || (profiles[0].name === 'My Kid')) {
+                const needsOnboarding = profiles.length === 0 || (profiles[0].name === 'My Kid');
+
+                if (needsOnboarding) {
+                    // Try restoring from Firestore before sending to signup
+                    const cloudProfiles = await restoreProfilesFromCloud();
+                    if (cloudProfiles && cloudProfiles.length > 0) {
+                        // Clear the default seed profile
+                        await db.profile.clear();
+                        for (const p of cloudProfiles) {
+                            await db.profile.add(p);
+                        }
+                        localStorage.setItem('tiny_closet_onboarded', 'true');
+                        // Restored — no redirect needed, just reload state
+                        navigate('/');
+                        return;
+                    }
                     navigate('/signup');
                 } else {
                     // Auto-heal localstorage if DB suggests they are already set up
