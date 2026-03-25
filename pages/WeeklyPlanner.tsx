@@ -3,9 +3,11 @@ import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
-import { ClothingItem, Category, WeeklyPlan, Season } from '../types';
+import { ClothingItem, Category, WeeklyPlan, Season, DayType, WeatherData } from '../types';
 import { useActiveChild } from '../hooks/useActiveChild';
-import { ChevronLeft, ChevronRight, X, Check, Trash2, Plus, Calendar, Clock, Sun, Leaf, Snowflake, CloudSun, Pencil } from 'lucide-react';
+import { buildOutfitForDayType } from '../services/outfitService';
+import { getCoordinates, fetchWeather } from '../services/weatherService';
+import { ChevronLeft, ChevronRight, X, Check, Trash2, Plus, Calendar, Clock, Sun, Leaf, Snowflake, CloudSun, Pencil, Sparkles, RotateCcw, ArrowLeft, GraduationCap, Palette, PartyPopper, Trophy, Home } from 'lucide-react';
 import clsx from 'clsx';
 
 // --- Date Helpers ---
@@ -46,6 +48,29 @@ function formatWeekRange(monday: Date): string {
     return `${m1} ${monday.getDate()} \u2013 ${sunday.getDate()}`;
   }
   return `${m1} ${monday.getDate()} \u2013 ${m2} ${sunday.getDate()}`;
+}
+
+// --- Day Type Config ---
+const DAY_TYPE_CONFIG: Record<DayType, { icon: typeof GraduationCap; label: string; color: string; activeBg: string; cardBg: string; iconColor: string }> = {
+  school:   { icon: GraduationCap, label: 'School',   color: 'bg-blue-50 text-blue-600 border-blue-200',       activeBg: 'bg-blue-500 text-white border-blue-500',     cardBg: 'bg-blue-100',   iconColor: 'text-blue-500' },
+  playdate: { icon: Palette,       label: 'Playdate', color: 'bg-pink-50 text-pink-600 border-pink-200',       activeBg: 'bg-pink-500 text-white border-pink-500',     cardBg: 'bg-pink-100',   iconColor: 'text-pink-500' },
+  party:    { icon: PartyPopper,   label: 'Party',    color: 'bg-purple-50 text-purple-600 border-purple-200', activeBg: 'bg-purple-500 text-white border-purple-500', cardBg: 'bg-purple-100', iconColor: 'text-purple-500' },
+  sports:   { icon: Trophy,        label: 'Sports',   color: 'bg-green-50 text-green-600 border-green-200',    activeBg: 'bg-green-500 text-white border-green-500',   cardBg: 'bg-lime-100',   iconColor: 'text-green-500' },
+  stayhome: { icon: Home,          label: 'Home',     color: 'bg-amber-50 text-amber-600 border-amber-200',    activeBg: 'bg-amber-500 text-white border-amber-500',   cardBg: 'bg-amber-100',  iconColor: 'text-amber-500' },
+};
+
+const ALL_DAY_TYPES: DayType[] = ['school', 'playdate', 'party', 'sports', 'stayhome'];
+
+function getDefaultDayTypes(weekDays: Date[]): Map<string, DayType> {
+  const map = new Map<string, DayType>();
+  weekDays.forEach(d => {
+    const key = formatDateKey(d);
+    const dow = d.getDay(); // 0=Sun, 6=Sat
+    if (dow === 0) map.set(key, 'stayhome');
+    else if (dow === 6) map.set(key, 'playdate');
+    else map.set(key, 'school');
+  });
+  return map;
 }
 
 // --- Category Grouping ---
@@ -139,11 +164,9 @@ const DraggableCanvasCard: React.FC<{
   const canvasRef = useRef<HTMLDivElement>(null);
   const dragState = useRef<{ id: number; startX: number; startY: number; origPos: ItemPosition } | null>(null);
 
-  // Sync positions when itemIds change
   useEffect(() => {
     const saved = loadPositions(dateKey);
     if (saved.size > 0) {
-      // Add default positions for any new items not in saved
       const merged = new Map(saved);
       const existingCount = merged.size;
       itemIds.forEach((id, i) => {
@@ -189,7 +212,6 @@ const DraggableCanvasCard: React.FC<{
   const handlePointerUp = useCallback(() => {
     if (dragState.current) {
       dragState.current = null;
-      // Save positions on drop
       setPositions(prev => {
         savePositions(dateKey, prev);
         return prev;
@@ -199,10 +221,7 @@ const DraggableCanvasCard: React.FC<{
 
   const toggleEdit = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
-    if (editing) {
-      // Exiting edit mode - save
-      savePositions(dateKey, positions);
-    }
+    if (editing) savePositions(dateKey, positions);
     setEditing(prev => !prev);
   }, [editing, dateKey, positions]);
 
@@ -210,14 +229,11 @@ const DraggableCanvasCard: React.FC<{
 
   return (
     <div className="relative">
-      {/* Edit toggle button */}
       <button
         onClick={toggleEdit}
         className={clsx(
           "absolute top-2 right-2 z-20 w-8 h-8 rounded-full flex items-center justify-center shadow-sm transition-colors",
-          editing
-            ? "bg-orange-400 text-white"
-            : "bg-white/80 text-slate-400 border border-slate-200"
+          editing ? "bg-orange-400 text-white" : "bg-white/80 text-slate-400 border border-slate-200"
         )}
       >
         <Pencil size={14} />
@@ -237,24 +253,14 @@ const DraggableCanvasCard: React.FC<{
           return (
             <div
               key={item.id}
-              className={clsx(
-                "absolute w-[30%] touch-none",
-                editing && "cursor-grab active:cursor-grabbing"
-              )}
-              style={{
-                left: `${pos.x}%`,
-                top: `${pos.y}%`,
-                zIndex: editing ? 10 : 1,
-              }}
+              className={clsx("absolute w-[30%] touch-none", editing && "cursor-grab active:cursor-grabbing")}
+              style={{ left: `${pos.x}%`, top: `${pos.y}%`, zIndex: editing ? 10 : 1 }}
               onPointerDown={(e) => handlePointerDown(e, item.id!)}
             >
               <img
                 src={item.image}
                 alt={item.category}
-                className={clsx(
-                  "w-full h-auto object-contain drop-shadow-md pointer-events-none",
-                  editing && "ring-2 ring-orange-200 rounded-lg"
-                )}
+                className={clsx("w-full h-auto object-contain drop-shadow-md pointer-events-none", editing && "ring-2 ring-orange-200 rounded-lg")}
                 draggable={false}
               />
             </div>
@@ -273,6 +279,25 @@ const DraggableCanvasCard: React.FC<{
   );
 };
 
+// --- Day Type Badge ---
+const DayTypeBadge: React.FC<{ dayType: DayType; small?: boolean }> = ({ dayType, small }) => {
+  const cfg = DAY_TYPE_CONFIG[dayType];
+  const Icon = cfg.icon;
+  return (
+    <span className={clsx(
+      "inline-flex items-center gap-1 rounded-full border font-bold",
+      cfg.color,
+      small ? "text-[10px] px-1.5 py-0.5" : "text-xs px-2 py-0.5"
+    )}>
+      <Icon size={small ? 10 : 12} />
+      {!small && <span>{cfg.label}</span>}
+    </span>
+  );
+};
+
+// --- Planner Phase ---
+type PlannerPhase = 'view' | 'setup' | 'generating' | 'review';
+
 // --- Component ---
 export const WeeklyPlanner: React.FC = () => {
   const navigate = useNavigate();
@@ -281,6 +306,12 @@ export const WeeklyPlanner: React.FC = () => {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [pendingItemIds, setPendingItemIds] = useState<number[]>([]);
   const [activeFilter, setActiveFilter] = useState<FilterKey>('All');
+
+  // Three-phase flow state
+  const [phase, setPhase] = useState<PlannerPhase>('view');
+  const [dayTypes, setDayTypes] = useState<Map<string, DayType>>(new Map());
+  const [generatedPlans, setGeneratedPlans] = useState<Map<string, number[]>>(new Map());
+  const [generatedDayTypes, setGeneratedDayTypes] = useState<Map<string, DayType>>(new Map());
 
   // Compute current week
   const monday = useMemo(() => {
@@ -291,10 +322,15 @@ export const WeeklyPlanner: React.FC = () => {
 
   const weekDays = useMemo(() => getWeekDays(monday), [monday]);
   const todayKey = formatDateKey(new Date());
-
-  // Fetch all plans for this week
   const weekDateKeys = useMemo(() => weekDays.map(formatDateKey), [weekDays]);
 
+  // Reset phase when changing weeks
+  useEffect(() => {
+    setPhase('view');
+    setGeneratedPlans(new Map());
+  }, [weekOffset]);
+
+  // Fetch all plans for this week
   const plans = useLiveQuery(
     () => {
       if (!activeChildId) return [];
@@ -312,6 +348,10 @@ export const WeeklyPlanner: React.FC = () => {
     return m;
   }, [plans]);
 
+  const hasAnyPlans = useMemo(() => {
+    return plans ? plans.some(p => p.itemIds.length > 0) : false;
+  }, [plans]);
+
   // Fetch closet items
   const allItemsRaw = useLiveQuery(() => db.items.filter(i => !i.isArchived).toArray());
   const allItems = useMemo(() => {
@@ -324,23 +364,21 @@ export const WeeklyPlanner: React.FC = () => {
 
   const grouped = useMemo(() => groupByCategory(allItems), [allItems]);
 
-  // Item lookup map
   const itemMap = useMemo(() => {
     const m = new Map<number, ClothingItem>();
     allItems.forEach(i => { if (i.id != null) m.set(i.id, i); });
     return m;
   }, [allItems]);
 
-  // --- Filtered items for builder modal ---
+  // Filtered items for builder modal
   const filteredItems = useMemo(() => {
-    if (activeFilter === 'All') return null; // null means use grouped view
+    if (activeFilter === 'All') return null;
     if (activeFilter === 'Recent') {
       const fourteenDaysAgo = Date.now() - 14 * 24 * 60 * 60 * 1000;
       return [...allItems]
         .filter(item => item.dateAdded >= fourteenDaysAgo)
         .sort((a, b) => b.dateAdded - a.dateAdded);
     }
-    // Season filters
     const season = SEASON_MAP[activeFilter];
     if (season) {
       return allItems.filter(item =>
@@ -350,13 +388,139 @@ export const WeeklyPlanner: React.FC = () => {
     return null;
   }, [activeFilter, allItems]);
 
-  // --- Handlers ---
+  // --- Phase handlers ---
+  const startSetup = useCallback(() => {
+    // Initialize day types from existing plans or defaults
+    const initial = getDefaultDayTypes(weekDays);
+    // Restore saved day types from existing plans
+    plans?.forEach(p => {
+      if (p.dayType) initial.set(p.date, p.dayType);
+    });
+    setDayTypes(initial);
+    setPhase('setup');
+  }, [weekDays, plans]);
+
+  const setDayType = useCallback((dateKey: string, type: DayType) => {
+    setDayTypes(prev => {
+      const next = new Map(prev);
+      next.set(dateKey, type);
+      return next;
+    });
+  }, []);
+
+  const generateOutfits = useCallback(async () => {
+    setPhase('generating');
+
+    // Get weather
+    let weather: WeatherData = { condition: 'Sunny', temp: 20, description: '' };
+    try {
+      const coords = await getCoordinates();
+      weather = await fetchWeather(coords.lat, coords.lon);
+    } catch {
+      // Use default weather
+    }
+
+    // Generate outfits for each day, with cross-day deduplication
+    const results = new Map<string, number[]>();
+    const usedItemIds: number[] = [];
+
+    for (const day of weekDays) {
+      const dateKey = formatDateKey(day);
+      // Skip past days
+      if (dateKey < todayKey && weekOffset === 0) {
+        results.set(dateKey, []);
+        continue;
+      }
+      const dayType = dayTypes.get(dateKey) || 'school';
+
+      let outfit = buildOutfitForDayType(
+        { allItems, weather, excludeItemIds: usedItemIds },
+        dayType
+      );
+
+      // Fallback: if no outfit generated with exclusions, try without
+      if (outfit.length === 0) {
+        outfit = buildOutfitForDayType({ allItems, weather }, dayType);
+      }
+
+      const ids = outfit.map(i => i.id!).filter(Boolean);
+      results.set(dateKey, ids);
+      usedItemIds.push(...ids);
+    }
+
+    setGeneratedPlans(results);
+    setGeneratedDayTypes(new Map(dayTypes));
+    setPhase('review');
+  }, [weekDays, dayTypes, allItems]);
+
+  const regenerateDay = useCallback(async (dateKey: string) => {
+    let weather: WeatherData = { condition: 'Sunny', temp: 20, description: '' };
+    try {
+      const coords = await getCoordinates();
+      weather = await fetchWeather(coords.lat, coords.lon);
+    } catch {}
+
+    const dayType = generatedDayTypes.get(dateKey) || 'school';
+    // Collect items used on other days
+    const otherUsedIds: number[] = [];
+    generatedPlans.forEach((ids, key) => {
+      if (key !== dateKey) otherUsedIds.push(...ids);
+    });
+
+    let outfit = buildOutfitForDayType(
+      { allItems, weather, excludeItemIds: otherUsedIds },
+      dayType
+    );
+    if (outfit.length === 0) {
+      outfit = buildOutfitForDayType({ allItems, weather }, dayType);
+    }
+
+    setGeneratedPlans(prev => {
+      const next = new Map(prev);
+      next.set(dateKey, outfit.map(i => i.id!).filter(Boolean));
+      return next;
+    });
+    // Clear saved positions for this day so new outfit gets fresh layout
+    localStorage.removeItem(`plan_positions_${dateKey}`);
+  }, [allItems, generatedPlans, generatedDayTypes]);
+
+  const saveAllPlans = useCallback(async () => {
+    if (!activeChildId) return;
+    for (const [dateKey, itemIds] of generatedPlans) {
+      const existing = planMap.get(dateKey);
+      const dayType = generatedDayTypes.get(dateKey);
+      if (itemIds.length === 0) {
+        if (existing?.id) {
+          await db.weeklyPlans.delete(existing.id);
+          localStorage.removeItem(`plan_positions_${dateKey}`);
+        }
+      } else if (existing?.id) {
+        await db.weeklyPlans.update(existing.id, { itemIds, dayType });
+      } else {
+        await db.weeklyPlans.add({
+          profileId: activeChildId,
+          date: dateKey,
+          itemIds,
+          dayType,
+        });
+      }
+    }
+    setPhase('view');
+    setGeneratedPlans(new Map());
+  }, [activeChildId, generatedPlans, generatedDayTypes, planMap]);
+
+  // --- Builder modal handlers (for editing individual days) ---
   const openBuilder = useCallback((dateKey: string) => {
-    const existing = planMap.get(dateKey);
-    setPendingItemIds(existing?.itemIds || []);
+    // In review mode, use generated plan; in view mode use saved plan
+    if (phase === 'review') {
+      setPendingItemIds(generatedPlans.get(dateKey) || []);
+    } else {
+      const existing = planMap.get(dateKey);
+      setPendingItemIds(existing?.itemIds || []);
+    }
     setSelectedDate(dateKey);
     setActiveFilter('All');
-  }, [planMap]);
+  }, [planMap, phase, generatedPlans]);
 
   const closeBuilder = useCallback(() => {
     setSelectedDate(null);
@@ -372,6 +536,20 @@ export const WeeklyPlanner: React.FC = () => {
 
   const savePlan = useCallback(async () => {
     if (!selectedDate || !activeChildId) return;
+
+    if (phase === 'review') {
+      // Update generated plan in memory
+      setGeneratedPlans(prev => {
+        const next = new Map(prev);
+        next.set(selectedDate, [...pendingItemIds]);
+        return next;
+      });
+      localStorage.removeItem(`plan_positions_${selectedDate}`);
+      closeBuilder();
+      return;
+    }
+
+    // Normal save to DB (view mode)
     const existing = planMap.get(selectedDate);
     if (pendingItemIds.length === 0) {
       if (existing?.id) {
@@ -388,13 +566,13 @@ export const WeeklyPlanner: React.FC = () => {
       });
     }
     closeBuilder();
-  }, [selectedDate, activeChildId, pendingItemIds, planMap, closeBuilder]);
+  }, [selectedDate, activeChildId, pendingItemIds, planMap, closeBuilder, phase]);
 
   const clearPlan = useCallback(() => {
     setPendingItemIds([]);
   }, []);
 
-  // --- Render item grid cell (shared between grouped and flat views) ---
+  // --- Render item grid cell ---
   const renderItemCell = useCallback((item: ClothingItem) => {
     const isSelected = pendingItemIds.includes(item.id!);
     return (
@@ -408,11 +586,7 @@ export const WeeklyPlanner: React.FC = () => {
             : "border-slate-100 hover:border-slate-200"
         )}
       >
-        <img
-          src={item.image}
-          alt={item.category}
-          className="w-full h-full object-cover"
-        />
+        <img src={item.image} alt={item.category} className="w-full h-full object-cover" />
         {isSelected && (
           <div className="absolute top-1 right-1 w-6 h-6 bg-orange-400 rounded-full flex items-center justify-center shadow-sm">
             <Check size={14} className="text-white" strokeWidth={3} />
@@ -422,18 +596,25 @@ export const WeeklyPlanner: React.FC = () => {
     );
   }, [pendingItemIds, toggleItem]);
 
+  // --- Render ---
   return (
     <div className="min-h-full bg-orange-50">
       {/* Header */}
       <div className="sticky top-0 z-30 bg-orange-50/95 backdrop-blur-sm px-6 pt-6 pb-4">
         <div className="flex items-center justify-between mb-3">
           <button
-            onClick={() => navigate(-1)}
+            onClick={() => {
+              if (phase === 'setup') { setPhase('view'); return; }
+              if (phase === 'review') { setPhase('setup'); return; }
+              navigate(-1);
+            }}
             className="w-10 h-10 rounded-full bg-white shadow-sm border border-slate-100 flex items-center justify-center text-slate-500 active:scale-95 transition-transform"
           >
-            <X size={20} />
+            {phase === 'view' ? <X size={20} /> : <ArrowLeft size={20} />}
           </button>
-          <h1 className="text-xl font-serif font-bold text-slate-800">Weekly Plan</h1>
+          <h1 className="text-xl font-serif font-bold text-slate-800">
+            {phase === 'setup' ? 'Set Day Types' : phase === 'review' ? 'Review Outfits' : 'Weekly Plan'}
+          </h1>
           <div className="w-10" />
         </div>
 
@@ -443,101 +624,315 @@ export const WeeklyPlanner: React.FC = () => {
           </p>
         )}
 
-        {/* Week Navigator */}
-        <div className="flex items-center justify-between bg-white rounded-2xl px-4 py-3 shadow-sm border border-slate-100">
-          <button
-            onClick={() => setWeekOffset(w => w - 1)}
-            className="w-8 h-8 rounded-full hover:bg-orange-50 flex items-center justify-center text-slate-400 active:scale-90 transition-transform"
-          >
-            <ChevronLeft size={20} />
-          </button>
-          <div className="flex items-center gap-2">
-            <Calendar size={16} className="text-orange-400" />
-            <span className="font-bold text-slate-700 text-sm">{formatWeekRange(monday)}</span>
+        {/* Week Navigator (only in view mode) */}
+        {phase === 'view' && (
+          <div className="flex items-center justify-between bg-white rounded-2xl px-4 py-3 shadow-sm border border-slate-100">
+            <button
+              onClick={() => setWeekOffset(w => w - 1)}
+              className="w-8 h-8 rounded-full hover:bg-orange-50 flex items-center justify-center text-slate-400 active:scale-90 transition-transform"
+            >
+              <ChevronLeft size={20} />
+            </button>
+            <div className="flex items-center gap-2">
+              <Calendar size={16} className="text-orange-400" />
+              <span className="font-bold text-slate-700 text-sm">{formatWeekRange(monday)}</span>
+            </div>
+            <button
+              onClick={() => setWeekOffset(w => w + 1)}
+              className="w-8 h-8 rounded-full hover:bg-orange-50 flex items-center justify-center text-slate-400 active:scale-90 transition-transform"
+            >
+              <ChevronRight size={20} />
+            </button>
           </div>
-          <button
-            onClick={() => setWeekOffset(w => w + 1)}
-            className="w-8 h-8 rounded-full hover:bg-orange-50 flex items-center justify-center text-slate-400 active:scale-90 transition-transform"
-          >
-            <ChevronRight size={20} />
-          </button>
-        </div>
+        )}
+
+        {/* Week range in setup/review */}
+        {(phase === 'setup' || phase === 'review') && (
+          <div className="text-center">
+            <span className="text-sm font-bold text-slate-500">{formatWeekRange(monday)}</span>
+          </div>
+        )}
       </div>
 
-      {/* Day Cards */}
-      <div className="px-6 pb-8 space-y-4">
-        {weekDays.map((day) => {
-          const dateKey = formatDateKey(day);
-          const isToday = dateKey === todayKey;
-          const plan = planMap.get(dateKey);
-          const hasOutfit = plan && plan.itemIds.length > 0;
-
-          return (
-            <div
-              key={dateKey}
-              className={clsx(
-                "rounded-[1.5rem] overflow-hidden shadow-sm border transition-all duration-200",
-                isToday ? "border-orange-300 ring-2 ring-orange-200" : "border-slate-100"
-              )}
+      {/* ===== PHASE: VIEW ===== */}
+      {phase === 'view' && (
+        <div className="px-6 pb-8">
+          {/* Plan This Week button */}
+          {allItems.length > 0 && (
+            <button
+              onClick={startSetup}
+              className="w-full mb-4 bg-gradient-to-r from-orange-400 to-pink-400 text-white font-bold py-4 rounded-2xl shadow-lg hover:shadow-xl active:scale-[0.98] transition-all flex items-center justify-center gap-2 text-base"
             >
-              {/* Day label bar */}
-              <div
-                onClick={() => openBuilder(dateKey)}
-                className="flex items-center justify-between px-4 py-3 bg-white cursor-pointer active:scale-[0.98] transition-transform"
-              >
-                <div className="flex items-center gap-2">
-                  <span className="font-serif font-bold text-slate-800">
-                    {SHORT_DAY[day.getDay()]}
-                  </span>
-                  <span className="text-slate-400 text-sm font-bold">
-                    {day.getDate()}
-                  </span>
-                  {isToday && (
-                    <span className="bg-orange-400 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
-                      TODAY
-                    </span>
+              <Sparkles size={20} />
+              {hasAnyPlans ? 'Replan This Week' : 'Plan This Week'}
+            </button>
+          )}
+
+          {/* Day Cards */}
+          <div className="space-y-3">
+            {weekDays.map((day) => {
+              const dateKey = formatDateKey(day);
+              const isToday = dateKey === todayKey;
+              const isPast = dateKey < todayKey && weekOffset === 0;
+              const plan = planMap.get(dateKey);
+              const hasOutfit = plan && plan.itemIds.length > 0;
+              const dayType = plan?.dayType;
+              const cfg = dayType ? DAY_TYPE_CONFIG[dayType] : null;
+
+              if (isPast) return (
+                <div
+                  key={dateKey}
+                  className="rounded-[1.5rem] px-4 py-3 bg-slate-100/60 flex items-center gap-3 opacity-50"
+                >
+                  <span className="font-bold text-slate-400 text-sm">{SHORT_DAY[day.getDay()]}</span>
+                  <span className="text-slate-400 text-xs">{SHORT_MONTHS[day.getMonth()]} {day.getDate()}</span>
+                  {cfg && <cfg.icon size={14} className={cfg.iconColor} />}
+                </div>
+              );
+
+              return (
+                <div
+                  key={dateKey}
+                  onClick={() => openBuilder(dateKey)}
+                  className={clsx(
+                    "rounded-[1.5rem] p-4 cursor-pointer active:scale-[0.98] transition-all duration-200",
+                    cfg ? cfg.cardBg : "bg-white",
+                    isToday && "ring-2 ring-orange-300"
+                  )}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-2">
+                      {cfg && <cfg.icon size={18} className={cfg.iconColor} />}
+                      <span className="font-bold text-slate-800 text-base">
+                        {DAY_NAMES[day.getDay()]}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {isToday && (
+                        <span className="bg-orange-400 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">TODAY</span>
+                      )}
+                      <ChevronRight size={16} className="text-slate-400" />
+                    </div>
+                  </div>
+
+                  <p className="text-xs text-slate-500 font-bold mb-3">
+                    {SHORT_MONTHS[day.getMonth()]} {day.getDate()}
+                    {cfg && <span> · {cfg.label}</span>}
+                    {hasOutfit && <span> · {plan.itemIds.length} items</span>}
+                  </p>
+
+                  {hasOutfit ? (
+                    <div className="flex gap-2 overflow-x-auto no-scrollbar">
+                      {plan.itemIds.map(id => {
+                        const item = itemMap.get(id);
+                        if (!item) return null;
+                        return (
+                          <div key={id} className="w-16 h-16 shrink-0 rounded-xl overflow-hidden shadow-sm border-2 border-white">
+                            <img src={item.image} alt={item.category} className="w-full h-full object-cover" />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 py-1">
+                      <div className="w-12 h-12 rounded-xl border-2 border-dashed border-slate-300/50 flex items-center justify-center">
+                        <Plus size={16} className="text-slate-400" />
+                      </div>
+                      <span className="text-xs font-bold text-slate-400">Plan outfit</span>
+                    </div>
                   )}
                 </div>
-                <ChevronRight size={16} className="text-slate-300" />
-              </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
-              {/* Outfit canvas or empty state */}
-              {hasOutfit ? (
-                <div className="px-2 pb-2">
-                  <DraggableCanvasCard
-                    itemIds={plan.itemIds}
-                    itemMap={itemMap}
-                    dateKey={dateKey}
-                  />
+      {/* ===== PHASE: SETUP ===== */}
+      {phase === 'setup' && (
+        <div className="px-6 pb-8">
+          <p className="text-center text-sm text-slate-400 mb-6">
+            Tap to set each day's activity
+          </p>
+
+          <div className="space-y-3">
+            {weekDays.map((day) => {
+              const dateKey = formatDateKey(day);
+              const isToday = dateKey === todayKey;
+              const isPast = dateKey < todayKey && weekOffset === 0;
+              const currentType = dayTypes.get(dateKey) || 'school';
+              const currentCfg = DAY_TYPE_CONFIG[currentType];
+
+              if (isPast) return (
+                <div key={dateKey} className="rounded-[1.5rem] px-4 py-3 bg-slate-100/60 flex items-center gap-3 opacity-50">
+                  <span className="font-bold text-slate-400 text-sm">{SHORT_DAY[day.getDay()]}</span>
+                  <span className="text-slate-400 text-xs">{SHORT_MONTHS[day.getMonth()]} {day.getDate()}</span>
                 </div>
-              ) : (
+              );
+
+              return (
                 <div
-                  className="bg-white px-4 pb-4 cursor-pointer active:scale-[0.98] transition-transform"
-                  onClick={() => openBuilder(dateKey)}
+                  key={dateKey}
+                  className={clsx(
+                    "rounded-[1.5rem] p-4 transition-all duration-300",
+                    currentCfg.cardBg,
+                    isToday && "ring-2 ring-orange-300"
+                  )}
                 >
-                  <div className="flex items-center gap-3 py-4 border-t border-dashed border-slate-100">
-                    <div className="w-12 h-12 rounded-xl border-2 border-dashed border-slate-200 flex items-center justify-center">
-                      <Plus size={18} className="text-slate-300" />
-                    </div>
-                    <span className="text-sm font-bold text-slate-300">Plan outfit</span>
+                  <div className="flex items-center gap-2 mb-3">
+                    <currentCfg.icon size={18} className={currentCfg.iconColor} />
+                    <span className="font-bold text-slate-800">{DAY_NAMES[day.getDay()]}</span>
+                    <span className="text-slate-500 text-xs font-bold">{SHORT_MONTHS[day.getMonth()]} {day.getDate()}</span>
+                    {isToday && (
+                      <span className="bg-orange-400 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">TODAY</span>
+                    )}
+                  </div>
+
+                  <div className="flex gap-1.5 flex-wrap">
+                    {ALL_DAY_TYPES.map((type) => {
+                      const cfg = DAY_TYPE_CONFIG[type];
+                      const isActive = currentType === type;
+                      return (
+                        <button
+                          key={type}
+                          onClick={() => setDayType(dateKey, type)}
+                          className={clsx(
+                            "flex items-center gap-1 px-2.5 py-1.5 rounded-full text-xs font-bold border transition-all active:scale-95",
+                            isActive ? cfg.activeBg : "bg-white/60 text-slate-600 border-white/80"
+                          )}
+                        >
+                          <cfg.icon size={12} className={isActive ? "text-white" : cfg.iconColor} />
+                          <span>{cfg.label}</span>
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
+              );
+            })}
+          </div>
 
-      {/* Outfit Builder Modal */}
+          {/* Generate button */}
+          <button
+            onClick={generateOutfits}
+            className="w-full mt-6 bg-gradient-to-r from-orange-400 to-pink-400 text-white font-bold py-4 rounded-2xl shadow-lg hover:shadow-xl active:scale-[0.98] transition-all flex items-center justify-center gap-2 text-base"
+          >
+            <Sparkles size={20} />
+            Generate Outfits
+          </button>
+        </div>
+      )}
+
+      {/* ===== PHASE: GENERATING ===== */}
+      {phase === 'generating' && (
+        <div className="px-6 pb-8 flex flex-col items-center justify-center" style={{ minHeight: '50vh' }}>
+          <div className="animate-bounce mb-6">
+            <Sparkles size={48} className="text-orange-400" />
+          </div>
+          <p className="text-lg font-serif font-bold text-slate-800 mb-2">Creating outfits...</p>
+          <p className="text-sm text-slate-400">Matching styles to your closet</p>
+        </div>
+      )}
+
+      {/* ===== PHASE: REVIEW ===== */}
+      {phase === 'review' && (
+        <div className="px-6 pb-8">
+          <div className="space-y-3">
+            {weekDays.map((day) => {
+              const dateKey = formatDateKey(day);
+              const isToday = dateKey === todayKey;
+              const isPast = dateKey < todayKey && weekOffset === 0;
+              const itemIds = generatedPlans.get(dateKey) || [];
+              const dayType = generatedDayTypes.get(dateKey);
+              const cfg = dayType ? DAY_TYPE_CONFIG[dayType] : null;
+              const hasOutfit = itemIds.length > 0;
+
+              if (isPast) return (
+                <div key={dateKey} className="rounded-[1.5rem] px-4 py-3 bg-slate-100/60 flex items-center gap-3 opacity-50">
+                  <span className="font-bold text-slate-400 text-sm">{SHORT_DAY[day.getDay()]}</span>
+                  <span className="text-slate-400 text-xs">{SHORT_MONTHS[day.getMonth()]} {day.getDate()}</span>
+                  {cfg && <cfg.icon size={14} className={cfg.iconColor} />}
+                </div>
+              );
+
+              return (
+                <div
+                  key={dateKey}
+                  className={clsx(
+                    "rounded-[1.5rem] p-4 transition-all duration-200",
+                    cfg ? cfg.cardBg : "bg-white",
+                    isToday && "ring-2 ring-orange-300"
+                  )}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-2">
+                      {cfg && <cfg.icon size={18} className={cfg.iconColor} />}
+                      <span className="font-bold text-slate-800 text-base">
+                        {DAY_NAMES[day.getDay()]}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      {isToday && (
+                        <span className="bg-orange-400 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">TODAY</span>
+                      )}
+                      <button
+                        onClick={() => regenerateDay(dateKey)}
+                        className="w-8 h-8 rounded-full bg-white/60 flex items-center justify-center text-slate-500 active:scale-90 transition-transform"
+                      >
+                        <RotateCcw size={14} />
+                      </button>
+                      <button
+                        onClick={() => openBuilder(dateKey)}
+                        className="w-8 h-8 rounded-full bg-white/60 flex items-center justify-center text-slate-500 active:scale-90 transition-transform"
+                      >
+                        <Pencil size={14} />
+                      </button>
+                    </div>
+                  </div>
+
+                  <p className="text-xs text-slate-500 font-bold mb-3">
+                    {SHORT_MONTHS[day.getMonth()]} {day.getDate()}
+                    {cfg && <span> · {cfg.label}</span>}
+                    {hasOutfit && <span> · {itemIds.length} items</span>}
+                  </p>
+
+                  {hasOutfit ? (
+                    <div className="flex gap-2 overflow-x-auto no-scrollbar">
+                      {itemIds.map(id => {
+                        const item = itemMap.get(id);
+                        if (!item) return null;
+                        return (
+                          <div key={id} className="w-16 h-16 shrink-0 rounded-xl overflow-hidden shadow-sm border-2 border-white">
+                            <img src={item.image} alt={item.category} className="w-full h-full object-cover" />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="text-xs font-bold text-slate-400 py-2">No outfit generated</p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Save All button */}
+          <button
+            onClick={saveAllPlans}
+            className="w-full mt-6 bg-slate-900 text-white font-bold py-4 rounded-2xl shadow-lg hover:shadow-xl active:scale-[0.98] transition-all flex items-center justify-center gap-2 text-base"
+          >
+            <Check size={20} />
+            Save Week
+          </button>
+        </div>
+      )}
+
+      {/* ===== Outfit Builder Modal ===== */}
       {selectedDate && (
         <div className="fixed inset-0 z-50 flex flex-col">
-          <div
-            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
-            onClick={closeBuilder}
-          />
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={closeBuilder} />
 
           <div className="relative mt-auto bg-orange-50 rounded-t-[2rem] max-h-[85dvh] flex flex-col">
-            {/* Sheet Header */}
             <div className="sticky top-0 bg-orange-50 rounded-t-[2rem] px-6 pt-5 pb-3 z-10">
               <div className="w-10 h-1 bg-slate-300 rounded-full mx-auto mb-4" />
               <div className="flex items-center justify-between">
@@ -569,7 +964,6 @@ export const WeeklyPlanner: React.FC = () => {
               </div>
             </div>
 
-            {/* Selected items strip */}
             {pendingItemIds.length > 0 && (
               <div className="px-6 pb-3">
                 <div className="flex gap-2 overflow-x-auto no-scrollbar py-1">
@@ -593,7 +987,6 @@ export const WeeklyPlanner: React.FC = () => {
               </div>
             )}
 
-            {/* Quick Filter Bar */}
             <div className="px-6 pb-3">
               <div className="flex gap-2 overflow-x-auto no-scrollbar py-1">
                 {FILTER_OPTIONS.map(({ key, label, icon: Icon }) => {
@@ -604,9 +997,7 @@ export const WeeklyPlanner: React.FC = () => {
                       onClick={() => setActiveFilter(key)}
                       className={clsx(
                         "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap shrink-0 transition-colors",
-                        isActive
-                          ? "bg-orange-400 text-white"
-                          : "bg-white text-slate-500 border border-slate-200"
+                        isActive ? "bg-orange-400 text-white" : "bg-white text-slate-500 border border-slate-200"
                       )}
                     >
                       <Icon size={14} className={isActive ? "text-white" : "text-slate-400"} />
@@ -617,7 +1008,6 @@ export const WeeklyPlanner: React.FC = () => {
               </div>
             </div>
 
-            {/* Item Grid */}
             <div className="overflow-y-auto flex-1 px-6 pb-8">
               {allItems.length === 0 ? (
                 <div className="text-center py-12">
@@ -625,7 +1015,6 @@ export const WeeklyPlanner: React.FC = () => {
                   <p className="text-sm text-slate-300 mt-1">Add some clothes first!</p>
                 </div>
               ) : filteredItems !== null ? (
-                /* Flat grid for filtered view */
                 filteredItems.length === 0 ? (
                   <div className="text-center py-12">
                     <p className="text-slate-400 font-bold">No items match this filter.</p>
@@ -637,12 +1026,9 @@ export const WeeklyPlanner: React.FC = () => {
                   </div>
                 )
               ) : (
-                /* Category-grouped view (default / "All") */
                 grouped.map(({ category, items }) => (
                   <div key={category} className="mb-5">
-                    <h3 className="text-sm font-bold text-slate-500 mb-2 uppercase tracking-wide">
-                      {category}
-                    </h3>
+                    <h3 className="text-sm font-bold text-slate-500 mb-2 uppercase tracking-wide">{category}</h3>
                     <div className="grid grid-cols-4 gap-2">
                       {items.map(item => renderItemCell(item))}
                     </div>

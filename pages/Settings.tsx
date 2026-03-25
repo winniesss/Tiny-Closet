@@ -8,7 +8,7 @@ import { Camera, User, Download, UploadCloud, CheckCircle2, AlertCircle, HelpCir
 import { useActiveChild } from '../hooks/useActiveChild';
 import clsx from 'clsx';
 
-const CURRENT_VERSION = '2.1';
+const CURRENT_VERSION = '2.2';
 
 export const Settings: React.FC = () => {
   const { profiles, activeChild, activeChildId, setActiveChildId } = useActiveChild();
@@ -22,6 +22,16 @@ export const Settings: React.FC = () => {
   const importInputRef = useRef<HTMLInputElement>(null);
 
   const releaseNotes = [
+      {
+          version: "2.2",
+          changes: [
+              "New: Smart Weekly Planner — set day types (School, Playdate, Party, Sports, Home) and auto-generate outfits.",
+              "New: Colorful day cards with Lucide icons for each activity type.",
+              "New: Past days are greyed out in the current week.",
+              "New: Photo crop tool when changing item photos.",
+              "Improved: Outfit engine extracted as shared service for Dashboard and Planner.",
+          ]
+      },
       {
           version: "2.1",
           changes: [

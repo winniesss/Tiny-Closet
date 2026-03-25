@@ -1,6 +1,6 @@
 
-import React, { useState, useEffect, useRef } from 'react';
-import { X, Archive, RotateCcw, Pencil, Trash2, Check, Save, Camera, Ruler } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { X, Archive, RotateCcw, Pencil, Trash2, Check, Save, Camera, Ruler, Crop, ZoomIn, ZoomOut } from 'lucide-react';
 import { ClothingItem, Category, Season } from '../types';
 import { db } from '../db';
 import clsx from 'clsx';
@@ -18,10 +18,23 @@ export const ItemDetailModal: React.FC<Props> = ({ item, onClose, onToggleArchiv
   const [formData, setFormData] = useState<Partial<ClothingItem>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Crop state
+  const [cropSource, setCropSource] = useState<string | null>(null);
+  const [cropPos, setCropPos] = useState({ x: 0, y: 0, scale: 1 });
+  const cropImgRef = useRef<HTMLImageElement>(null);
+  const cropContainerRef = useRef<HTMLDivElement>(null);
+  const gestureRef = useRef<{
+    type: 'pan' | 'pinch';
+    startPos: { x: number; y: number; scale: number };
+    startTouch: { x: number; y: number };
+    startDist?: number;
+  } | null>(null);
+
   useEffect(() => {
     if (item) {
         setFormData(item);
         setIsEditing(false);
+        setCropSource(null);
     }
   }, [item]);
 
@@ -54,10 +67,108 @@ export const ItemDetailModal: React.FC<Props> = ({ item, onClose, onToggleArchiv
     if (file) {
       const reader = new FileReader();
       reader.onloadend = () => {
-        setFormData(prev => ({ ...prev, image: reader.result as string }));
+        const src = reader.result as string;
+        // Open crop tool instead of directly setting image
+        const img = new Image();
+        img.onload = () => {
+          const containerW = Math.min(window.innerWidth, 400);
+          const containerH = containerW * 1.2;
+          const fitScale = Math.min(containerW / img.naturalWidth, containerH / img.naturalHeight) * 0.85;
+          setCropPos({ x: 0, y: 0, scale: fitScale });
+          setCropSource(src);
+        };
+        img.src = src;
       };
       reader.readAsDataURL(file);
     }
+    if (e.target) e.target.value = '';
+  };
+
+  // Crop gesture handlers
+  const handleCropTouchStart = (e: React.TouchEvent) => {
+    const touches = Array.from(e.touches);
+    if (touches.length === 2) {
+      const dist = Math.hypot(touches[0].clientX - touches[1].clientX, touches[0].clientY - touches[1].clientY);
+      gestureRef.current = { type: 'pinch', startPos: { ...cropPos }, startTouch: { x: 0, y: 0 }, startDist: dist };
+    } else if (touches.length === 1) {
+      gestureRef.current = { type: 'pan', startPos: { ...cropPos }, startTouch: { x: touches[0].clientX, y: touches[0].clientY } };
+    }
+  };
+
+  const handleCropTouchMove = (e: React.TouchEvent) => {
+    if (!gestureRef.current) return;
+    if (e.cancelable) e.preventDefault();
+    const g = gestureRef.current;
+    const touches = Array.from(e.touches);
+    if (g.type === 'pinch' && touches.length === 2) {
+      const dist = Math.hypot(touches[0].clientX - touches[1].clientX, touches[0].clientY - touches[1].clientY);
+      const newScale = Math.min(8, Math.max(0.1, g.startPos.scale * (dist / g.startDist!)));
+      setCropPos(prev => ({ ...prev, scale: newScale }));
+    } else if (g.type === 'pan' && touches.length === 1) {
+      setCropPos({
+        ...g.startPos,
+        x: g.startPos.x + (touches[0].clientX - g.startTouch.x),
+        y: g.startPos.y + (touches[0].clientY - g.startTouch.y),
+      });
+    }
+  };
+
+  const handleCropTouchEnd = () => { gestureRef.current = null; };
+
+  // Mouse drag for desktop
+  const handleCropMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    gestureRef.current = { type: 'pan', startPos: { ...cropPos }, startTouch: { x: e.clientX, y: e.clientY } };
+    const handleMouseMove = (ev: MouseEvent) => {
+      if (!gestureRef.current) return;
+      const g = gestureRef.current;
+      setCropPos({
+        ...g.startPos,
+        x: g.startPos.x + (ev.clientX - g.startTouch.x),
+        y: g.startPos.y + (ev.clientY - g.startTouch.y),
+      });
+    };
+    const handleMouseUp = () => {
+      gestureRef.current = null;
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  };
+
+  const handleCropWheel = (e: React.WheelEvent) => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? 0.9 : 1.1;
+    setCropPos(prev => ({ ...prev, scale: Math.min(8, Math.max(0.1, prev.scale * delta)) }));
+  };
+
+  const confirmCrop = () => {
+    if (!cropImgRef.current || !cropContainerRef.current) return;
+    const img = cropImgRef.current;
+    const rect = cropContainerRef.current.getBoundingClientRect();
+    const outputW = rect.width * 2; // 2x for retina
+    const outputH = rect.height * 2;
+    const canvas = document.createElement('canvas');
+    canvas.width = outputW;
+    canvas.height = outputH;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, outputW, outputH);
+
+    const drawScale = outputW / rect.width;
+    ctx.save();
+    ctx.scale(drawScale, drawScale);
+    ctx.translate(rect.width / 2, rect.height / 2);
+    ctx.translate(cropPos.x, cropPos.y);
+    ctx.scale(cropPos.scale, cropPos.scale);
+    ctx.drawImage(img, -img.naturalWidth / 2, -img.naturalHeight / 2);
+    ctx.restore();
+
+    setFormData(prev => ({ ...prev, image: canvas.toDataURL('image/jpeg', 0.9) }));
+    setCropSource(null);
   };
 
   const formatDate = (timestamp: number) => {
@@ -280,6 +391,83 @@ export const ItemDetailModal: React.FC<Props> = ({ item, onClose, onToggleArchiv
             )}
         </div>
       </div>
+
+      {/* Crop Overlay */}
+      {cropSource && (
+        <div className="fixed inset-0 z-[70] bg-slate-900 flex flex-col">
+          {/* Top bar */}
+          <div className="flex justify-between items-center p-4 pt-[calc(1rem+env(safe-area-inset-top))]">
+            <button onClick={() => setCropSource(null)} className="p-2 text-white/70 hover:text-white">
+              <X size={24} />
+            </button>
+            <span className="text-white font-bold text-sm">Move & Pinch to Crop</span>
+            <button onClick={confirmCrop} className="p-2 text-sky-400 hover:text-sky-300">
+              <Check size={24} />
+            </button>
+          </div>
+
+          {/* Crop area */}
+          <div
+            ref={cropContainerRef}
+            className="flex-1 relative overflow-hidden touch-none cursor-grab active:cursor-grabbing"
+            onTouchStart={handleCropTouchStart}
+            onTouchMove={handleCropTouchMove}
+            onTouchEnd={handleCropTouchEnd}
+            onMouseDown={handleCropMouseDown}
+            onWheel={handleCropWheel}
+          >
+            <img
+              ref={cropImgRef}
+              src={cropSource}
+              alt="Crop"
+              className="absolute top-1/2 left-1/2 pointer-events-none"
+              draggable={false}
+              style={{
+                transform: `translate(-50%, -50%) translate(${cropPos.x}px, ${cropPos.y}px) scale(${cropPos.scale})`,
+                transformOrigin: 'center center',
+              }}
+            />
+            {/* Grid overlay */}
+            <div className="absolute inset-8 border border-white/30 pointer-events-none">
+              <div className="absolute left-1/3 top-0 bottom-0 w-px bg-white/20" />
+              <div className="absolute left-2/3 top-0 bottom-0 w-px bg-white/20" />
+              <div className="absolute top-1/3 left-0 right-0 h-px bg-white/20" />
+              <div className="absolute top-2/3 left-0 right-0 h-px bg-white/20" />
+            </div>
+            {/* Dark edges */}
+            <div className="absolute inset-0 pointer-events-none border-[2rem] border-black/40" />
+          </div>
+
+          {/* Zoom controls */}
+          <div className="flex items-center justify-center gap-6 py-3">
+            <button
+              onClick={() => setCropPos(prev => ({ ...prev, scale: Math.max(0.1, prev.scale * 0.8) }))}
+              className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-white"
+            >
+              <ZoomOut size={20} />
+            </button>
+            <span className="text-white/50 text-xs font-bold w-12 text-center">
+              {Math.round(cropPos.scale * 100)}%
+            </span>
+            <button
+              onClick={() => setCropPos(prev => ({ ...prev, scale: Math.min(8, prev.scale * 1.25) }))}
+              className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-white"
+            >
+              <ZoomIn size={20} />
+            </button>
+          </div>
+
+          {/* Confirm button */}
+          <div className="p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] flex justify-center">
+            <button
+              onClick={confirmCrop}
+              className="bg-sky-400 text-white font-bold py-4 px-12 rounded-full shadow-lg text-lg"
+            >
+              Use Photo
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

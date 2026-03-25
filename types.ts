@@ -56,11 +56,14 @@ export interface ChildProfile {
   avatar?: string; // Base64 image string
 }
 
+export type DayType = 'school' | 'playdate' | 'party' | 'sports' | 'stayhome';
+
 export interface WeeklyPlan {
   id?: number;
   profileId?: number;
   date: string; // YYYY-MM-DD format
   itemIds: number[]; // IDs of clothing items for this day
+  dayType?: DayType;
 }
 
 export interface WeatherData {
