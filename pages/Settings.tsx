@@ -144,16 +144,25 @@ export const Settings: React.FC = () => {
 
   const handleImportBackup = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file) {
+      setImportError("No file selected.");
+      setTimeout(() => setImportError(''), 4000);
+      return;
+    }
 
     const reader = new FileReader();
+    reader.onerror = () => {
+      setImportError("Failed to read file.");
+      setTimeout(() => setImportError(''), 4000);
+    };
     reader.onload = async (event) => {
       try {
         const json = event.target?.result as string;
+        if (!json) throw new Error("File is empty");
         const data = JSON.parse(json);
 
         if (!data.profile || !data.items) {
-          throw new Error("Invalid backup file format");
+          throw new Error("Invalid backup file format — missing profile or items");
         }
 
         if (window.confirm(`Found ${data.items.length} items. This will REPLACE your current data. Continue?`)) {
@@ -406,11 +415,11 @@ export const Settings: React.FC = () => {
                 >
                     <UploadCloud size={20} /> Import Backup
                 </button>
-                <input 
-                    type="file" 
+                <input
+                    type="file"
                     ref={importInputRef}
                     onChange={handleImportBackup}
-                    accept=".json"
+                    accept=".json,application/json,text/plain,*/*"
                     className="hidden"
                 />
                 </div>
