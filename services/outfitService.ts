@@ -129,10 +129,12 @@ export function buildOutfit(context: OutfitContext, style: OutfitStyle): Clothin
   const targetSeason = getSeasonFromTemp(temp);
 
   const excluded = new Set(excludeItemIds || []);
-  const suitable = allItems.filter(item =>
+  const seasonFiltered = allItems.filter(item =>
     !excluded.has(item.id!) &&
     (item.seasons.includes(targetSeason) || item.seasons.includes(Season.All))
   );
+  // Fallback: if season filter is too strict, use all non-excluded items
+  const suitable = seasonFiltered.length >= 2 ? seasonFiltered : allItems.filter(item => !excluded.has(item.id!));
 
   const tops = suitable.filter(i => i.category === Category.Top);
   const bottoms = suitable.filter(i => i.category === Category.Bottom);
@@ -151,13 +153,13 @@ export function buildOutfit(context: OutfitContext, style: OutfitStyle): Clothin
   if (style === 'chic' && fullBody.length > 0 && Math.random() > 0.4) useFullBody = true;
   if (tops.length === 0 || bottoms.length === 0) {
     if (fullBody.length > 0) useFullBody = true;
-    else return [];
+    // else: just use whatever is available (top-only or bottom-only)
   }
 
   if (useFullBody) {
     const anchor = pickWeightedAnchor(fullBody, brandCounts, topBrands);
     if (anchor) outfit.push(anchor);
-  } else {
+  } else if (tops.length > 0 && bottoms.length > 0) {
     const top = pickWeightedAnchor(tops, brandCounts, topBrands);
     if (!top) return [];
     outfit.push(top);
@@ -168,6 +170,17 @@ export function buildOutfit(context: OutfitContext, style: OutfitStyle): Clothin
     }));
     scoredBottoms.sort((a, b) => b.score - a.score);
     if (scoredBottoms.length > 0) outfit.push(scoredBottoms[0].item);
+  } else if (tops.length > 0) {
+    const top = pickWeightedAnchor(tops, brandCounts, topBrands);
+    if (top) outfit.push(top);
+  } else if (bottoms.length > 0) {
+    const bottom = pickWeightedAnchor(bottoms, brandCounts, topBrands);
+    if (bottom) outfit.push(bottom);
+  } else if (suitable.length > 0) {
+    // Nothing in standard categories — just pick any item
+    outfit.push(suitable[Math.floor(Math.random() * suitable.length)]);
+  } else {
+    return [];
   }
 
   // 2. Outerwear
@@ -235,11 +248,15 @@ export function buildOutfitForDayType(context: OutfitContext, dayType: DayType):
   const excluded = new Set(excludeItemIds || []);
   const excludeCats = new Set(config.excludeCategories);
 
-  const suitable = allItems.filter(item =>
+  const seasonFiltered = allItems.filter(item =>
     !excluded.has(item.id!) &&
     !excludeCats.has(item.category) &&
     (item.seasons.includes(targetSeason) || item.seasons.includes(Season.All))
   );
+  // Fallback: if season filter is too strict, ignore season requirement
+  const suitable = seasonFiltered.length >= 2
+    ? seasonFiltered
+    : allItems.filter(item => !excluded.has(item.id!) && !excludeCats.has(item.category));
 
   // Stay Home: try pajamas first
   if (config.preferPajamas) {
@@ -271,13 +288,12 @@ export function buildOutfitForDayType(context: OutfitContext, dayType: DayType):
 
   if (tops.length === 0 || bottoms.length === 0) {
     if (fullBody.length > 0) useFullBody = true;
-    else return [];
   }
 
   if (useFullBody) {
     const anchor = pickWeightedAnchor(fullBody, brandCounts, topBrands);
     if (anchor) outfit.push(anchor);
-  } else {
+  } else if (tops.length > 0 && bottoms.length > 0) {
     const top = pickWeightedAnchor(tops, brandCounts, topBrands);
     if (!top) return [];
     outfit.push(top);
@@ -288,6 +304,14 @@ export function buildOutfitForDayType(context: OutfitContext, dayType: DayType):
     }));
     scoredBottoms.sort((a, b) => b.score - a.score);
     if (scoredBottoms.length > 0) outfit.push(scoredBottoms[0].item);
+  } else if (tops.length > 0) {
+    const top = pickWeightedAnchor(tops, brandCounts, topBrands);
+    if (top) outfit.push(top);
+  } else if (bottoms.length > 0) {
+    const bottom = pickWeightedAnchor(bottoms, brandCounts, topBrands);
+    if (bottom) outfit.push(bottom);
+  } else if (suitable.length > 0) {
+    outfit.push(suitable[Math.floor(Math.random() * suitable.length)]);
   }
 
   // 2. Outerwear

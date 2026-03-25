@@ -5,8 +5,8 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
 import { ClothingItem, Category, WeeklyPlan, Season, DayType, WeatherData } from '../types';
 import { useActiveChild } from '../hooks/useActiveChild';
-import { buildOutfitForDayType } from '../services/outfitService';
-import { getCoordinates, fetchWeather } from '../services/weatherService';
+import { buildOutfitForDayType, buildOutfit } from '../services/outfitService';
+import { getCoordinates, fetchWeather, fetchWeekForecast } from '../services/weatherService';
 import { ChevronLeft, ChevronRight, X, Check, Trash2, Plus, Calendar, Clock, Sun, Leaf, Snowflake, CloudSun, Pencil, Sparkles, RotateCcw, ArrowLeft, GraduationCap, Palette, PartyPopper, Trophy, Home } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -312,6 +312,8 @@ export const WeeklyPlanner: React.FC = () => {
   const [dayTypes, setDayTypes] = useState<Map<string, DayType>>(new Map());
   const [generatedPlans, setGeneratedPlans] = useState<Map<string, number[]>>(new Map());
   const [generatedDayTypes, setGeneratedDayTypes] = useState<Map<string, DayType>>(new Map());
+  const [weatherMap, setWeatherMap] = useState<Map<string, WeatherData>>(new Map());
+  const weatherMapRef = useRef<Map<string, WeatherData>>(new Map());
 
   // Compute current week
   const monday = useMemo(() => {
@@ -411,14 +413,20 @@ export const WeeklyPlanner: React.FC = () => {
   const generateOutfits = useCallback(async () => {
     setPhase('generating');
 
-    // Get weather
-    let weather: WeatherData = { condition: 'Sunny', temp: 20, description: '' };
+    // Get 7-day forecast
+    const defaultWeather: WeatherData = { condition: 'Sunny', temp: 20, description: '' };
+    let forecast = new Map<string, WeatherData>();
     try {
       const coords = await getCoordinates();
-      weather = await fetchWeather(coords.lat, coords.lon);
+      forecast = await fetchWeekForecast(coords.lat, coords.lon);
     } catch {
-      // Use default weather
+      // Geolocation blocked — try with a fallback (SF)
+      try {
+        forecast = await fetchWeekForecast(37.77, -122.42);
+      } catch {}
     }
+    weatherMapRef.current = forecast;
+    setWeatherMap(forecast);
 
     // Generate outfits for each day, with cross-day deduplication
     const results = new Map<string, number[]>();
@@ -426,21 +434,23 @@ export const WeeklyPlanner: React.FC = () => {
 
     for (const day of weekDays) {
       const dateKey = formatDateKey(day);
-      // Skip past days
       if (dateKey < todayKey && weekOffset === 0) {
         results.set(dateKey, []);
         continue;
       }
       const dayType = dayTypes.get(dateKey) || 'school';
+      const weather = forecast.get(dateKey) || defaultWeather;
 
+      // Try with dedup → without dedup → generic outfit as fallback
       let outfit = buildOutfitForDayType(
         { allItems, weather, excludeItemIds: usedItemIds },
         dayType
       );
-
-      // Fallback: if no outfit generated with exclusions, try without
       if (outfit.length === 0) {
         outfit = buildOutfitForDayType({ allItems, weather }, dayType);
+      }
+      if (outfit.length === 0) {
+        outfit = buildOutfit({ allItems, weather }, 'chic');
       }
 
       const ids = outfit.map(i => i.id!).filter(Boolean);
@@ -453,15 +463,9 @@ export const WeeklyPlanner: React.FC = () => {
     setPhase('review');
   }, [weekDays, dayTypes, allItems]);
 
-  const regenerateDay = useCallback(async (dateKey: string) => {
-    let weather: WeatherData = { condition: 'Sunny', temp: 20, description: '' };
-    try {
-      const coords = await getCoordinates();
-      weather = await fetchWeather(coords.lat, coords.lon);
-    } catch {}
-
+  const regenerateDay = useCallback((dateKey: string) => {
+    const weather = weatherMap.get(dateKey) || weatherMapRef.current.get(dateKey) || { condition: 'Sunny' as const, temp: 20, description: '' };
     const dayType = generatedDayTypes.get(dateKey) || 'school';
-    // Collect items used on other days
     const otherUsedIds: number[] = [];
     generatedPlans.forEach((ids, key) => {
       if (key !== dateKey) otherUsedIds.push(...ids);
@@ -482,7 +486,7 @@ export const WeeklyPlanner: React.FC = () => {
     });
     // Clear saved positions for this day so new outfit gets fresh layout
     localStorage.removeItem(`plan_positions_${dateKey}`);
-  }, [allItems, generatedPlans, generatedDayTypes]);
+  }, [allItems, generatedPlans, generatedDayTypes, weatherMap]);
 
   const saveAllPlans = useCallback(async () => {
     if (!activeChildId) return;
@@ -890,11 +894,29 @@ export const WeeklyPlanner: React.FC = () => {
                     </div>
                   </div>
 
-                  <p className="text-xs text-slate-500 font-bold mb-3">
-                    {SHORT_MONTHS[day.getMonth()]} {day.getDate()}
-                    {cfg && <span> · {cfg.label}</span>}
-                    {hasOutfit && <span> · {itemIds.length} items</span>}
-                  </p>
+                  {(() => {
+                    const w = weatherMap.get(dateKey) || weatherMapRef.current.get(dateKey);
+                    return (
+                      <div className="flex items-center gap-2 text-xs text-slate-500 font-bold mb-3 flex-wrap">
+                        <span>{SHORT_MONTHS[day.getMonth()]} {day.getDate()}</span>
+                        {cfg && <><span>·</span><span>{cfg.label}</span></>}
+                        {hasOutfit && <><span>·</span><span>{itemIds.length} items</span></>}
+                        {w && (
+                          <>
+                            <span>·</span>
+                            <span className="inline-flex items-center gap-1 text-slate-600">
+                              {w.condition === 'Sunny' && <Sun size={12} className="text-amber-400" />}
+                              {w.condition === 'Cloudy' && <CloudSun size={12} className="text-slate-400" />}
+                              {w.condition === 'Rainy' && <CloudSun size={12} className="text-blue-400" />}
+                              {w.condition === 'Snowy' && <Snowflake size={12} className="text-sky-400" />}
+                              {w.condition === 'Windy' && <Leaf size={12} className="text-teal-400" />}
+                              {w.description}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })()}
 
                   {hasOutfit ? (
                     <div className="flex gap-2 overflow-x-auto no-scrollbar">
