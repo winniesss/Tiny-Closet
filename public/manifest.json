@@ -1,0 +1,15 @@
+{
+  "name": "Tiny Closet",
+  "short_name": "Tiny Closet",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fff7ed",
+  "theme_color": "#fff7ed",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

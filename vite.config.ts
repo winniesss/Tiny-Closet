@@ -125,7 +125,7 @@ export default defineConfig(({ mode }) => {
     plugins: [react(), imageScrapePlugin()],
     build: {
       outDir: 'dist',
-      sourcemap: true
+      sourcemap: mode === 'development'
     },
     define: {
       'process.env.API_KEY': JSON.stringify(apiKey),

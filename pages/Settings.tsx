@@ -3,8 +3,9 @@ import React, { useEffect, useState, useRef } from 'react';
 import { db } from '../db';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { ChildProfile } from '../types';
-import { syncProfilesToCloud } from '../services/profileSync';
-import { Camera, User, Download, UploadCloud, CheckCircle2, AlertCircle, HelpCircle, RefreshCw, Settings as SettingsIcon, Info, Plus, Trash2, Users } from 'lucide-react';
+import { syncProfilesToCloud, deleteAllAccountData } from '../services/profileSync';
+import { Camera, User, Download, UploadCloud, CheckCircle2, AlertCircle, HelpCircle, RefreshCw, Settings as SettingsIcon, Info, Plus, Trash2, Users, Shield } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { useActiveChild } from '../hooks/useActiveChild';
 import clsx from 'clsx';
 
@@ -121,6 +122,29 @@ export const Settings: React.FC = () => {
       if(window.confirm("Are you sure? This will delete all clothes and data.")) {
           await db.items.clear();
           alert("Closet reset complete.");
+      }
+  };
+
+  const handleDeleteAccount = async () => {
+      if (!window.confirm("Delete your account and ALL data? This includes all child profiles, clothing items, outfit plans, and cloud backup. This cannot be undone.")) return;
+      if (!window.confirm("Are you absolutely sure? All data will be permanently deleted.")) return;
+
+      try {
+          // Delete cloud data and clear identifiers
+          await deleteAllAccountData();
+          // Delete all local database tables
+          await db.items.clear();
+          await db.profile.clear();
+          await db.outfitLikes.clear();
+          await db.weeklyPlans.clear();
+          await db.shopAccounts.clear();
+          await db.shopPosts.clear();
+          await db.outfitMatches.clear();
+          // Redirect to fresh start
+          window.location.href = window.location.origin + window.location.pathname;
+      } catch (err) {
+          console.error('Account deletion failed:', err);
+          alert('Failed to delete account. Please try again.');
       }
   };
 
@@ -450,7 +474,13 @@ export const Settings: React.FC = () => {
                     onClick={handleDeleteAll}
                     className="w-full text-red-600 text-sm font-bold bg-red-50 border-2 border-red-200 hover:bg-red-100 py-4 rounded-2xl transition-colors"
                 >
-                    Reset Everything
+                    Reset Closet Items
+                </button>
+                <button
+                    onClick={handleDeleteAccount}
+                    className="w-full mt-3 text-red-700 text-sm font-bold bg-red-100 border-2 border-red-300 hover:bg-red-200 py-4 rounded-2xl transition-colors"
+                >
+                    Delete Account & All Data
                 </button>
             </div>
         </div>
@@ -507,12 +537,20 @@ export const Settings: React.FC = () => {
 
             <div className="mt-12 text-center pb-4">
                 <p className="text-slate-300 text-xs font-bold mb-3">Tiny Closet v{CURRENT_VERSION}</p>
-                <button 
-                onClick={handleReload}
-                className="inline-flex items-center gap-2 text-sky-400 text-xs font-bold bg-white px-4 py-2 rounded-full shadow-sm hover:bg-sky-50 transition-colors"
-                >
-                <RefreshCw size={12} /> Update App
-                </button>
+                <div className="flex items-center justify-center gap-4 mb-3">
+                    <button
+                    onClick={handleReload}
+                    className="inline-flex items-center gap-2 text-sky-400 text-xs font-bold bg-white px-4 py-2 rounded-full shadow-sm hover:bg-sky-50 transition-colors"
+                    >
+                    <RefreshCw size={12} /> Update App
+                    </button>
+                    <Link
+                    to="/privacy"
+                    className="inline-flex items-center gap-2 text-slate-400 text-xs font-bold bg-white px-4 py-2 rounded-full shadow-sm hover:bg-slate-50 transition-colors"
+                    >
+                    <Shield size={12} /> Privacy Policy
+                    </Link>
+                </div>
             </div>
         </div>
       )}

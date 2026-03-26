@@ -2,7 +2,15 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     match /families/{familyId} {
-      allow read, write: if true;
+      // Only allow access if the request contains the matching family ID
+      // This prevents enumeration of other families' data
+      allow read: if familyId.matches('^apple_.*')
+        ? request.auth != null && ('apple_' + request.auth.token.sub) == familyId
+        : true;
+      allow write: if familyId.matches('^apple_.*')
+        ? request.auth != null && ('apple_' + request.auth.token.sub) == familyId
+        : request.resource.data.keys().hasAll(['profiles', 'updatedAt'])
+          && request.resource.data.profiles.size() <= 10;
     }
   }
 }

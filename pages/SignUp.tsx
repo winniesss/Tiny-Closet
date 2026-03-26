@@ -1,10 +1,12 @@
 
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../db';
-import { syncProfilesToCloud } from '../services/profileSync';
+import { syncProfilesToCloud, getFamilyId, embedFamilyIdInUrl, linkAppleUserId, restoreProfilesFromCloud } from '../services/profileSync';
 import { Logo } from '../components/Logo';
-import { Camera, ChevronRight, Sparkles, X, Check } from 'lucide-react';
+import { Camera, ChevronRight, Sparkles, X, Check, Shield } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { signInWithApple, isAppleSignInAvailable } from '../services/appleAuth';
 
 export const SignUp: React.FC = () => {
   const navigate = useNavigate();
@@ -14,6 +16,14 @@ export const SignUp: React.FC = () => {
   const [birthDate, setBirthDate] = useState('');
   const [avatar, setAvatar] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [appleLoading, setAppleLoading] = useState(false);
+  const [appleLinked, setAppleLinked] = useState(false);
+  const [appleAvailable, setAppleAvailable] = useState(false);
+  const [parentConsent, setParentConsent] = useState(false);
+
+  useEffect(() => {
+    isAppleSignInAvailable().then(setAppleAvailable);
+  }, []);
 
   // Crop state
   const [cropSource, setCropSource] = useState<string | null>(null);
@@ -105,6 +115,42 @@ export const SignUp: React.FC = () => {
     setCropSource(null);
   };
 
+  const handleAppleSignIn = async () => {
+    setAppleLoading(true);
+    try {
+      const result = await signInWithApple();
+      await linkAppleUserId(result.user);
+
+      // Check if this Apple user already has data in the cloud
+      const cloudProfiles = await restoreProfilesFromCloud();
+      if (cloudProfiles && cloudProfiles.length > 0) {
+        await db.profile.clear();
+        for (const p of cloudProfiles) {
+          await db.profile.add(p);
+        }
+        localStorage.setItem('tiny_closet_onboarded', 'true');
+        const maxAge = 10 * 365 * 24 * 60 * 60;
+        document.cookie = `tiny_closet_onboarded=true; path=/; max-age=${maxAge}; SameSite=Strict`;
+        embedFamilyIdInUrl(getFamilyId());
+        navigator.storage?.persist?.().catch(() => {});
+        navigate('/');
+        return;
+      }
+
+      // New Apple user — pre-fill name if available, continue to form
+      setAppleLinked(true);
+      if (result.givenName) {
+        setName(result.givenName);
+      }
+    } catch (err: any) {
+      if (err?.message !== 'USER_CANCELED') {
+        console.error('Apple Sign In failed:', err);
+      }
+    } finally {
+      setAppleLoading(false);
+    }
+  };
+
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name || !birthDate) return;
@@ -128,6 +174,13 @@ export const SignUp: React.FC = () => {
         }
         
         localStorage.setItem('tiny_closet_onboarded', 'true');
+        // Cookie survives iOS storage purges better than localStorage
+        const maxAge = 10 * 365 * 24 * 60 * 60;
+        document.cookie = `tiny_closet_onboarded=true; path=/; max-age=${maxAge}; SameSite=Strict`;
+        // Embed family_id in URL — survives even complete iOS storage wipe
+        embedFamilyIdInUrl(getFamilyId());
+        // Request persistent storage so iOS doesn't evict our data
+        navigator.storage?.persist?.().catch(() => {});
 
         // Sync to cloud so profile survives iOS storage purges
         const allProfiles = await db.profile.toArray();
@@ -156,9 +209,40 @@ export const SignUp: React.FC = () => {
                    </div>
                    <h1 className="text-2xl font-bold text-slate-800 mb-2">Welcome!</h1>
                    <p className="text-slate-500 text-sm leading-relaxed">
-                       Let's set up your child's digital closet to get started.
+                       {appleLinked
+                         ? "Great! Now tell us about your child."
+                         : "Let's set up your child's digital closet to get started."
+                       }
                    </p>
                </div>
+
+               {/* Sign In with Apple — only on native iOS */}
+               {appleAvailable && !appleLinked && (
+                 <>
+                   <button
+                     type="button"
+                     onClick={handleAppleSignIn}
+                     disabled={appleLoading}
+                     className="w-full bg-black text-white font-semibold py-4 rounded-2xl flex items-center justify-center gap-3 shadow-md hover:shadow-lg active:scale-95 transition-all disabled:opacity-70"
+                   >
+                     {appleLoading ? (
+                       <Sparkles className="animate-spin" size={20} />
+                     ) : (
+                       <>
+                         <svg width="18" height="18" viewBox="0 0 18 18" fill="currentColor">
+                           <path d="M13.71 5.04c-.08.06-1.55.89-1.55 2.73 0 2.13 1.87 2.89 1.93 2.91-.01.06-.3 1.03-1 2.04-.6.87-1.23 1.74-2.18 1.74s-1.2-.55-2.3-.55c-1.07 0-1.45.57-2.32.57s-1.47-.81-2.18-1.8C3.26 11.43 2.7 9.59 2.7 7.84c0-2.79 1.81-4.27 3.6-4.27.95 0 1.74.62 2.33.62.57 0 1.45-.66 2.53-.66.41 0 1.87.04 2.55 1.51zM11.04 2.35c.44-.52.75-1.24.75-1.96 0-.1-.01-.2-.03-.29-.71.03-1.56.48-2.07 1.06-.4.45-.77 1.17-.77 1.9 0 .11.02.22.03.26.05.01.14.02.22.02.64 0 1.44-.43 1.87-.99z"/>
+                         </svg>
+                         Sign in with Apple
+                       </>
+                     )}
+                   </button>
+                   <div className="flex items-center gap-3 my-2">
+                     <div className="flex-1 h-px bg-slate-200"></div>
+                     <span className="text-xs text-slate-400 font-medium">or</span>
+                     <div className="flex-1 h-px bg-slate-200"></div>
+                   </div>
+                 </>
+               )}
 
                <form onSubmit={handleSignUp} className="space-y-6">
                    <div className="flex flex-col items-center">
@@ -203,15 +287,33 @@ export const SignUp: React.FC = () => {
                        </div>
                    </div>
 
-                   <button 
+                   {/* COPPA Parental Consent */}
+                   <div className="flex items-start gap-3 bg-sky-50 p-4 rounded-2xl border border-sky-100">
+                       <div className="mt-0.5 shrink-0">
+                           <input
+                               type="checkbox"
+                               id="parentConsent"
+                               checked={parentConsent}
+                               onChange={e => setParentConsent(e.target.checked)}
+                               className="w-5 h-5 rounded border-slate-300 text-sky-500 focus:ring-sky-200 accent-sky-500"
+                           />
+                       </div>
+                       <label htmlFor="parentConsent" className="text-xs text-slate-500 leading-relaxed">
+                           <Shield size={12} className="inline text-sky-400 mr-1" />
+                           I am the parent or legal guardian of this child and I consent to the collection of their name, date of birth, and photo as described in our{' '}
+                           <Link to="/privacy" className="text-sky-500 underline font-bold">Privacy Policy</Link>.
+                       </label>
+                   </div>
+
+                   <button
                        type="submit"
-                       disabled={loading}
+                       disabled={loading || !parentConsent}
                        className="w-full bg-slate-900 text-white font-bold py-5 rounded-full shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-95 transition-all text-lg flex items-center justify-center gap-3 mt-4 disabled:opacity-70 disabled:cursor-not-allowed"
                    >
                        {loading ? (
                            <Sparkles className="animate-spin" size={20} />
                        ) : (
-                           <>Create Account <ChevronRight size={20} /></>
+                           <>Get Started <ChevronRight size={20} /></>
                        )}
                    </button>
                </form>

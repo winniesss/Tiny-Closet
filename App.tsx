@@ -9,8 +9,9 @@ import { Stats } from './pages/Stats';
 import { Settings } from './pages/Settings';
 import { WeeklyPlanner } from './pages/WeeklyPlanner';
 import { SignUp } from './pages/SignUp';
+import { PrivacyPolicy } from './pages/PrivacyPolicy';
 import { db } from './db';
-import { restoreProfilesFromCloud } from './services/profileSync';
+import { restoreProfilesFromCloud, getFamilyId, embedFamilyIdInUrl } from './services/profileSync';
 import clsx from 'clsx';
 
 const AppContent: React.FC = () => {
@@ -21,41 +22,64 @@ const AppContent: React.FC = () => {
   const isAddItem = path === '/add';
   const isPlan = path === '/plan';
   const isSignUp = path === '/signup';
+  const isPrivacy = path === '/privacy';
 
   // Check onboarding status — restore from cloud if local data was wiped by iOS
   useEffect(() => {
+    const getOnboardedCookie = (): boolean => {
+      return document.cookie.includes('tiny_closet_onboarded=true');
+    };
+    const setOnboardedFlag = () => {
+      localStorage.setItem('tiny_closet_onboarded', 'true');
+      // Cookie survives iOS storage purges better than localStorage
+      const maxAge = 10 * 365 * 24 * 60 * 60;
+      document.cookie = `tiny_closet_onboarded=true; path=/; max-age=${maxAge}; SameSite=Strict`;
+      // Embed family_id in URL — survives even complete iOS storage wipe
+      embedFamilyIdInUrl(getFamilyId());
+      // Request persistent storage so iOS doesn't evict our data
+      navigator.storage?.persist?.().catch(() => {});
+    };
+
     const checkOnboarding = async () => {
         // If we are already on signup, don't redirect
         if (location.pathname === '/signup') return;
 
-        const onboarded = localStorage.getItem('tiny_closet_onboarded');
+        const onboarded = localStorage.getItem('tiny_closet_onboarded') || getOnboardedCookie();
         if (!onboarded) {
              try {
                 const profiles = await db.profile.toArray();
-                const needsOnboarding = profiles.length === 0 || (profiles[0].name === 'My Kid');
+                const hasRealProfile = profiles.length > 0 && profiles[0].name !== 'My Kid';
+                // Check if user has closet items — a clear signal they've used the app before
+                const itemCount = await db.items.count();
+                const hasExistingData = hasRealProfile || itemCount > 0;
 
-                if (needsOnboarding) {
-                    // Try restoring from Firestore before sending to signup
-                    const cloudProfiles = await restoreProfilesFromCloud();
-                    if (cloudProfiles && cloudProfiles.length > 0) {
-                        // Clear the default seed profile
-                        await db.profile.clear();
-                        for (const p of cloudProfiles) {
-                            await db.profile.add(p);
-                        }
-                        localStorage.setItem('tiny_closet_onboarded', 'true');
-                        // Restored — no redirect needed, just reload state
-                        navigate('/');
-                        return;
-                    }
-                    navigate('/signup');
-                } else {
-                    // Auto-heal localstorage if DB suggests they are already set up
-                    localStorage.setItem('tiny_closet_onboarded', 'true');
+                if (hasExistingData) {
+                    // Auto-heal: user clearly onboarded before, storage was just wiped
+                    setOnboardedFlag();
+                    return;
                 }
+
+                // Truly new user or fully wiped — try restoring from cloud
+                const cloudProfiles = await restoreProfilesFromCloud();
+                if (cloudProfiles && cloudProfiles.length > 0) {
+                    // Clear the default seed profile
+                    await db.profile.clear();
+                    for (const p of cloudProfiles) {
+                        await db.profile.add(p);
+                    }
+                    setOnboardedFlag();
+                    // Restored — no redirect needed, just reload state
+                    navigate('/');
+                    return;
+                }
+                navigate('/signup');
              } catch (e) {
                 console.error("DB Error checking profile", e);
              }
+        } else if (!getOnboardedCookie()) {
+            // Auto-heal: localStorage has it but cookie doesn't
+            const maxAge = 10 * 365 * 24 * 60 * 60;
+            document.cookie = `tiny_closet_onboarded=true; path=/; max-age=${maxAge}; SameSite=Strict`;
         }
     };
     checkOnboarding();
@@ -88,8 +112,15 @@ const AppContent: React.FC = () => {
          </div>
        )}
 
-       {/* Navbar - Hidden when adding an item, planning, or on sign up page */}
-       {!(isAddItem || isPlan || isSignUp) && <Navbar />}
+       {/* Privacy Policy Page */}
+       {isPrivacy && (
+         <div className="absolute inset-0 w-full h-full z-50 bg-orange-50 overflow-y-auto pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
+              <PrivacyPolicy />
+         </div>
+       )}
+
+       {/* Navbar - Hidden when adding an item, planning, on sign up, or privacy page */}
+       {!(isAddItem || isPlan || isSignUp || isPrivacy) && <Navbar />}
 
        {/* Add Item Overlay */}
        {isAddItem && (
