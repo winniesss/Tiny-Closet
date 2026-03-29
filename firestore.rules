@@ -2,15 +2,26 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     match /families/{familyId} {
-      // Only allow access if the request contains the matching family ID
-      // This prevents enumeration of other families' data
+      // Apple-authenticated users: verify token matches family ID
+      // Local users (fam_*): require UUID format, restrict data shape and size
+
       allow read: if familyId.matches('^apple_.*')
         ? request.auth != null && ('apple_' + request.auth.token.sub) == familyId
-        : true;
+        : familyId.matches('^fam_[0-9a-f\\-]{36}$');
+
       allow write: if familyId.matches('^apple_.*')
         ? request.auth != null && ('apple_' + request.auth.token.sub) == familyId
-        : request.resource.data.keys().hasAll(['profiles', 'updatedAt'])
-          && request.resource.data.profiles.size() <= 10;
+        : familyId.matches('^fam_[0-9a-f\\-]{36}$')
+          && request.resource.data.keys().hasAll(['profiles', 'updatedAt'])
+          && request.resource.data.keys().size() <= 3
+          && request.resource.data.profiles is list
+          && request.resource.data.profiles.size() <= 10
+          && request.resource.data.updatedAt is string;
+    }
+
+    // Deny all other paths by default
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

@@ -7,7 +7,7 @@ import { ClothingItem, Category, WeeklyPlan, Season, DayType, WeatherData } from
 import { useActiveChild } from '../hooks/useActiveChild';
 import { buildOutfitForDayType, buildOutfit } from '../services/outfitService';
 import { getCoordinates, fetchWeather, fetchWeekForecast } from '../services/weatherService';
-import { ChevronLeft, ChevronRight, X, Check, Trash2, Plus, Calendar, Clock, Sun, Leaf, Snowflake, CloudSun, Pencil, Sparkles, RotateCcw, ArrowLeft, GraduationCap, Palette, PartyPopper, Trophy, Home } from 'lucide-react';
+import { ChevronLeft, ChevronRight, X, Check, Trash2, Plus, Calendar, Clock, Sun, Leaf, Snowflake, CloudSun, Pencil, Sparkles, RotateCcw, ArrowLeft, GraduationCap, Palette, PartyPopper, Trophy, Home, AlertTriangle } from 'lucide-react';
 import clsx from 'clsx';
 
 // --- Date Helpers ---
@@ -231,9 +231,10 @@ const DraggableCanvasCard: React.FC<{
     <div className="relative">
       <button
         onClick={toggleEdit}
+        aria-label={editing ? "Done editing layout" : "Edit outfit layout"}
         className={clsx(
-          "absolute top-2 right-2 z-20 w-8 h-8 rounded-full flex items-center justify-center shadow-sm transition-colors",
-          editing ? "bg-orange-400 text-white" : "bg-white/80 text-slate-400 border border-slate-200"
+          "absolute top-2 right-2 z-20 w-11 h-11 rounded-full flex items-center justify-center shadow-sm transition-colors",
+          editing ? "bg-orange-600 text-white" : "bg-white/80 dark:bg-slate-800/80 text-slate-400 dark:text-slate-500 border border-slate-200 dark:border-slate-700"
         )}
       >
         <Pencil size={14} />
@@ -242,7 +243,7 @@ const DraggableCanvasCard: React.FC<{
       <div
         ref={canvasRef}
         className={clsx(
-          "relative w-full aspect-[4/5] bg-white rounded-2xl overflow-hidden",
+          "relative w-full aspect-[4/5] bg-white dark:bg-slate-800 rounded-2xl overflow-hidden",
           editing && "ring-2 ring-orange-300"
         )}
         onPointerMove={handlePointerMove}
@@ -269,7 +270,7 @@ const DraggableCanvasCard: React.FC<{
 
         {editing && (
           <div className="absolute bottom-2 left-0 right-0 text-center">
-            <span className="text-[10px] font-bold text-slate-300 bg-white/70 px-2 py-0.5 rounded-full">
+            <span className="text-caption font-medium text-slate-300 bg-white/70 dark:bg-slate-800/70 px-2 py-0.5 rounded-full">
               Drag items to reposition
             </span>
           </div>
@@ -287,7 +288,7 @@ const DayTypeBadge: React.FC<{ dayType: DayType; small?: boolean }> = ({ dayType
     <span className={clsx(
       "inline-flex items-center gap-1 rounded-full border font-bold",
       cfg.color,
-      small ? "text-[10px] px-1.5 py-0.5" : "text-xs px-2 py-0.5"
+      small ? "text-caption px-1.5 py-0.5" : "text-footnote px-2 py-0.5"
     )}>
       <Icon size={small ? 10 : 12} />
       {!small && <span>{cfg.label}</span>}
@@ -315,6 +316,10 @@ export const WeeklyPlanner: React.FC = () => {
   const [weatherMap, setWeatherMap] = useState<Map<string, WeatherData>>(new Map());
   const weatherMapRef = useRef<Map<string, WeatherData>>(new Map());
 
+  // Phase 5: Error state for generation
+  const [generateError, setGenerateError] = useState<string | null>(null);
+  const [dayErrors, setDayErrors] = useState<Map<string, string>>(new Map());
+
   // Compute current week
   const monday = useMemo(() => {
     const m = getMonday(new Date());
@@ -330,6 +335,8 @@ export const WeeklyPlanner: React.FC = () => {
   useEffect(() => {
     setPhase('view');
     setGeneratedPlans(new Map());
+    setGenerateError(null);
+    setDayErrors(new Map());
   }, [weekOffset]);
 
   // Fetch all plans for this week
@@ -412,80 +419,103 @@ export const WeeklyPlanner: React.FC = () => {
 
   const generateOutfits = useCallback(async () => {
     setPhase('generating');
+    setGenerateError(null);
+    setDayErrors(new Map());
 
-    // Get 7-day forecast
-    const defaultWeather: WeatherData = { condition: 'Sunny', temp: 20, description: '' };
-    let forecast = new Map<string, WeatherData>();
     try {
-      const coords = await getCoordinates();
-      forecast = await fetchWeekForecast(coords.lat, coords.lon);
-    } catch {
-      // Geolocation blocked — try with a fallback (SF)
+      // Get 7-day forecast
+      const defaultWeather: WeatherData = { condition: 'Sunny', temp: 20, description: '' };
+      let forecast = new Map<string, WeatherData>();
       try {
-        forecast = await fetchWeekForecast(37.77, -122.42);
-      } catch {}
-    }
-    weatherMapRef.current = forecast;
-    setWeatherMap(forecast);
-
-    // Generate outfits for each day, with cross-day deduplication
-    const results = new Map<string, number[]>();
-    const usedItemIds: number[] = [];
-
-    for (const day of weekDays) {
-      const dateKey = formatDateKey(day);
-      if (dateKey < todayKey && weekOffset === 0) {
-        results.set(dateKey, []);
-        continue;
+        const coords = await getCoordinates();
+        forecast = await fetchWeekForecast(coords.lat, coords.lon);
+      } catch {
+        // Geolocation blocked — try with a fallback (SF)
+        try {
+          forecast = await fetchWeekForecast(37.77, -122.42);
+        } catch {}
       }
-      const dayType = dayTypes.get(dateKey) || 'school';
-      const weather = forecast.get(dateKey) || defaultWeather;
+      weatherMapRef.current = forecast;
+      setWeatherMap(forecast);
 
-      // Try with dedup → without dedup → generic outfit as fallback
+      // Generate outfits for each day, with cross-day deduplication
+      const results = new Map<string, number[]>();
+      const usedItemIds: number[] = [];
+
+      for (const day of weekDays) {
+        const dateKey = formatDateKey(day);
+        if (dateKey < todayKey && weekOffset === 0) {
+          results.set(dateKey, []);
+          continue;
+        }
+        const dayType = dayTypes.get(dateKey) || 'school';
+        const weather = forecast.get(dateKey) || defaultWeather;
+
+        // Try with dedup -> without dedup -> generic outfit as fallback
+        let outfit = buildOutfitForDayType(
+          { allItems, weather, excludeItemIds: usedItemIds },
+          dayType
+        );
+        if (outfit.length === 0) {
+          outfit = buildOutfitForDayType({ allItems, weather }, dayType);
+        }
+        if (outfit.length === 0) {
+          outfit = buildOutfit({ allItems, weather }, 'chic');
+        }
+
+        const ids = outfit.map(i => i.id!).filter(Boolean);
+        results.set(dateKey, ids);
+        usedItemIds.push(...ids);
+      }
+
+      setGeneratedPlans(results);
+      setGeneratedDayTypes(new Map(dayTypes));
+      setPhase('review');
+    } catch (err) {
+      console.error('Outfit generation failed:', err);
+      setGenerateError('Failed to generate outfits. Please try again.');
+      setPhase('setup');
+    }
+  }, [weekDays, dayTypes, allItems]);
+
+  const regenerateDay = useCallback((dateKey: string) => {
+    try {
+      const weather = weatherMap.get(dateKey) || weatherMapRef.current.get(dateKey) || { condition: 'Sunny' as const, temp: 20, description: '' };
+      const dayType = generatedDayTypes.get(dateKey) || 'school';
+      const otherUsedIds: number[] = [];
+      generatedPlans.forEach((ids, key) => {
+        if (key !== dateKey) otherUsedIds.push(...ids);
+      });
+
       let outfit = buildOutfitForDayType(
-        { allItems, weather, excludeItemIds: usedItemIds },
+        { allItems, weather, excludeItemIds: otherUsedIds },
         dayType
       );
       if (outfit.length === 0) {
         outfit = buildOutfitForDayType({ allItems, weather }, dayType);
       }
-      if (outfit.length === 0) {
-        outfit = buildOutfit({ allItems, weather }, 'chic');
-      }
 
-      const ids = outfit.map(i => i.id!).filter(Boolean);
-      results.set(dateKey, ids);
-      usedItemIds.push(...ids);
+      setGeneratedPlans(prev => {
+        const next = new Map(prev);
+        next.set(dateKey, outfit.map(i => i.id!).filter(Boolean));
+        return next;
+      });
+      // Clear saved positions for this day so new outfit gets fresh layout
+      localStorage.removeItem(`plan_positions_${dateKey}`);
+      // Clear any error for this day
+      setDayErrors(prev => {
+        const next = new Map(prev);
+        next.delete(dateKey);
+        return next;
+      });
+    } catch (err) {
+      console.error(`Regenerate failed for ${dateKey}:`, err);
+      setDayErrors(prev => {
+        const next = new Map(prev);
+        next.set(dateKey, 'Failed to regenerate. Try again.');
+        return next;
+      });
     }
-
-    setGeneratedPlans(results);
-    setGeneratedDayTypes(new Map(dayTypes));
-    setPhase('review');
-  }, [weekDays, dayTypes, allItems]);
-
-  const regenerateDay = useCallback((dateKey: string) => {
-    const weather = weatherMap.get(dateKey) || weatherMapRef.current.get(dateKey) || { condition: 'Sunny' as const, temp: 20, description: '' };
-    const dayType = generatedDayTypes.get(dateKey) || 'school';
-    const otherUsedIds: number[] = [];
-    generatedPlans.forEach((ids, key) => {
-      if (key !== dateKey) otherUsedIds.push(...ids);
-    });
-
-    let outfit = buildOutfitForDayType(
-      { allItems, weather, excludeItemIds: otherUsedIds },
-      dayType
-    );
-    if (outfit.length === 0) {
-      outfit = buildOutfitForDayType({ allItems, weather }, dayType);
-    }
-
-    setGeneratedPlans(prev => {
-      const next = new Map(prev);
-      next.set(dateKey, outfit.map(i => i.id!).filter(Boolean));
-      return next;
-    });
-    // Clear saved positions for this day so new outfit gets fresh layout
-    localStorage.removeItem(`plan_positions_${dateKey}`);
   }, [allItems, generatedPlans, generatedDayTypes, weatherMap]);
 
   const saveAllPlans = useCallback(async () => {
@@ -587,12 +617,12 @@ export const WeeklyPlanner: React.FC = () => {
           "relative aspect-square rounded-xl overflow-hidden cursor-pointer border-2 transition-all active:scale-95",
           isSelected
             ? "border-orange-400 ring-2 ring-orange-200 shadow-md"
-            : "border-slate-100 hover:border-slate-200"
+            : "border-slate-100 dark:border-slate-700 hover:border-slate-200"
         )}
       >
         <img src={item.image} alt={item.category} className="w-full h-full object-cover" />
         {isSelected && (
-          <div className="absolute top-1 right-1 w-6 h-6 bg-orange-400 rounded-full flex items-center justify-center shadow-sm">
+          <div className="absolute top-1 right-1 w-6 h-6 bg-orange-600 rounded-full flex items-center justify-center shadow-sm">
             <Check size={14} className="text-white" strokeWidth={3} />
           </div>
         )}
@@ -602,9 +632,9 @@ export const WeeklyPlanner: React.FC = () => {
 
   // --- Render ---
   return (
-    <div className="min-h-full bg-orange-50">
+    <div className="min-h-full bg-orange-50 dark:bg-slate-900">
       {/* Header */}
-      <div className="sticky top-0 z-30 bg-orange-50/95 backdrop-blur-sm px-6 pt-6 pb-4">
+      <div className="sticky z-30 bg-orange-50/95 dark:bg-slate-900/95 backdrop-blur-sm px-6 pt-2 pb-4" style={{ top: 'env(safe-area-inset-top, 0px)' }}>
         <div className="flex items-center justify-between mb-3">
           <button
             onClick={() => {
@@ -612,38 +642,41 @@ export const WeeklyPlanner: React.FC = () => {
               if (phase === 'review') { setPhase('setup'); return; }
               navigate(-1);
             }}
-            className="w-10 h-10 rounded-full bg-white shadow-sm border border-slate-100 flex items-center justify-center text-slate-500 active:scale-95 transition-transform"
+            aria-label={phase === 'view' ? 'Close' : 'Go back'}
+            className="w-11 h-11 rounded-full bg-white dark:bg-slate-800 shadow-sm border border-slate-100 dark:border-slate-700 flex items-center justify-center text-slate-500 dark:text-slate-400 active:scale-95 transition-transform"
           >
             {phase === 'view' ? <X size={20} /> : <ArrowLeft size={20} />}
           </button>
-          <h1 className="text-xl font-serif font-bold text-slate-800">
+          <h1 className="text-title font-serif font-bold text-slate-800 dark:text-slate-50">
             {phase === 'setup' ? 'Set Day Types' : phase === 'review' ? 'Review Outfits' : 'Weekly Plan'}
           </h1>
-          <div className="w-10" />
+          <div className="w-11" />
         </div>
 
         {activeChild && (
-          <p className="text-center text-sm text-slate-400 font-bold -mt-1 mb-3">
+          <p className="text-center text-body text-slate-400 dark:text-slate-500 font-medium -mt-1 mb-3">
             {activeChild.name}
           </p>
         )}
 
         {/* Week Navigator (only in view mode) */}
         {phase === 'view' && (
-          <div className="flex items-center justify-between bg-white rounded-2xl px-4 py-3 shadow-sm border border-slate-100">
+          <div className="flex items-center justify-between bg-white dark:bg-slate-800 rounded-2xl px-4 py-3 shadow-sm border border-slate-100 dark:border-slate-700">
             <button
               onClick={() => setWeekOffset(w => w - 1)}
-              className="w-8 h-8 rounded-full hover:bg-orange-50 flex items-center justify-center text-slate-400 active:scale-90 transition-transform"
+              aria-label="Previous week"
+              className="w-11 h-11 rounded-full hover:bg-orange-50 dark:hover:bg-slate-700 flex items-center justify-center text-slate-400 dark:text-slate-500 active:scale-90 transition-transform"
             >
               <ChevronLeft size={20} />
             </button>
             <div className="flex items-center gap-2">
               <Calendar size={16} className="text-orange-400" />
-              <span className="font-bold text-slate-700 text-sm">{formatWeekRange(monday)}</span>
+              <span className="font-bold text-slate-700 dark:text-slate-200 text-body">{formatWeekRange(monday)}</span>
             </div>
             <button
               onClick={() => setWeekOffset(w => w + 1)}
-              className="w-8 h-8 rounded-full hover:bg-orange-50 flex items-center justify-center text-slate-400 active:scale-90 transition-transform"
+              aria-label="Next week"
+              className="w-11 h-11 rounded-full hover:bg-orange-50 dark:hover:bg-slate-700 flex items-center justify-center text-slate-400 dark:text-slate-500 active:scale-90 transition-transform"
             >
               <ChevronRight size={20} />
             </button>
@@ -653,7 +686,7 @@ export const WeeklyPlanner: React.FC = () => {
         {/* Week range in setup/review */}
         {(phase === 'setup' || phase === 'review') && (
           <div className="text-center">
-            <span className="text-sm font-bold text-slate-500">{formatWeekRange(monday)}</span>
+            <span className="text-body font-bold text-slate-500 dark:text-slate-400">{formatWeekRange(monday)}</span>
           </div>
         )}
       </div>
@@ -665,7 +698,7 @@ export const WeeklyPlanner: React.FC = () => {
           {allItems.length > 0 && (
             <button
               onClick={startSetup}
-              className="w-full mb-4 bg-gradient-to-r from-orange-400 to-pink-400 text-white font-bold py-4 rounded-2xl shadow-lg hover:shadow-xl active:scale-[0.98] transition-all flex items-center justify-center gap-2 text-base"
+              className="w-full mb-4 bg-gradient-to-r from-orange-600 to-pink-400 text-white font-bold py-4 rounded-2xl shadow-lg active:shadow-md active:scale-[0.98] transition-all flex items-center justify-center gap-2 text-body"
             >
               <Sparkles size={20} />
               {hasAnyPlans ? 'Replan This Week' : 'Plan This Week'}
@@ -686,10 +719,10 @@ export const WeeklyPlanner: React.FC = () => {
               if (isPast) return (
                 <div
                   key={dateKey}
-                  className="rounded-[1.5rem] px-4 py-3 bg-slate-100/60 flex items-center gap-3 opacity-50"
+                  className="rounded-[1.5rem] px-4 py-3 bg-slate-100/60 dark:bg-slate-800/60 flex items-center gap-3 opacity-50"
                 >
-                  <span className="font-bold text-slate-400 text-sm">{SHORT_DAY[day.getDay()]}</span>
-                  <span className="text-slate-400 text-xs">{SHORT_MONTHS[day.getMonth()]} {day.getDate()}</span>
+                  <span className="font-bold text-slate-400 dark:text-slate-500 text-body">{SHORT_DAY[day.getDay()]}</span>
+                  <span className="text-slate-400 dark:text-slate-500 text-footnote">{SHORT_MONTHS[day.getMonth()]} {day.getDate()}</span>
                   {cfg && <cfg.icon size={14} className={cfg.iconColor} />}
                 </div>
               );
@@ -700,26 +733,26 @@ export const WeeklyPlanner: React.FC = () => {
                   onClick={() => openBuilder(dateKey)}
                   className={clsx(
                     "rounded-[1.5rem] p-4 cursor-pointer active:scale-[0.98] transition-all duration-200",
-                    cfg ? cfg.cardBg : "bg-white",
+                    cfg ? cfg.cardBg : "bg-white dark:bg-slate-800",
                     isToday && "ring-2 ring-orange-300"
                   )}
                 >
                   <div className="flex items-center justify-between mb-1">
                     <div className="flex items-center gap-2">
                       {cfg && <cfg.icon size={18} className={cfg.iconColor} />}
-                      <span className="font-bold text-slate-800 text-base">
+                      <span className="font-bold text-slate-800 dark:text-slate-50 text-body">
                         {DAY_NAMES[day.getDay()]}
                       </span>
                     </div>
                     <div className="flex items-center gap-2">
                       {isToday && (
-                        <span className="bg-orange-400 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">TODAY</span>
+                        <span className="bg-orange-600 text-white text-caption font-bold px-2 py-0.5 rounded-full">TODAY</span>
                       )}
-                      <ChevronRight size={16} className="text-slate-400" />
+                      <ChevronRight size={16} className="text-slate-400 dark:text-slate-500" />
                     </div>
                   </div>
 
-                  <p className="text-xs text-slate-500 font-bold mb-3">
+                  <p className="text-footnote text-slate-500 dark:text-slate-400 font-medium mb-3">
                     {SHORT_MONTHS[day.getMonth()]} {day.getDate()}
                     {cfg && <span> · {cfg.label}</span>}
                     {hasOutfit && <span> · {plan.itemIds.length} items</span>}
@@ -731,7 +764,7 @@ export const WeeklyPlanner: React.FC = () => {
                         const item = itemMap.get(id);
                         if (!item) return null;
                         return (
-                          <div key={id} className="w-16 h-16 shrink-0 rounded-xl overflow-hidden shadow-sm border-2 border-white">
+                          <div key={id} className="w-16 h-16 shrink-0 rounded-xl overflow-hidden shadow-sm border-2 border-white dark:border-slate-700">
                             <img src={item.image} alt={item.category} className="w-full h-full object-cover" />
                           </div>
                         );
@@ -740,9 +773,9 @@ export const WeeklyPlanner: React.FC = () => {
                   ) : (
                     <div className="flex items-center gap-2 py-1">
                       <div className="w-12 h-12 rounded-xl border-2 border-dashed border-slate-300/50 flex items-center justify-center">
-                        <Plus size={16} className="text-slate-400" />
+                        <Plus size={16} className="text-slate-400 dark:text-slate-500" />
                       </div>
-                      <span className="text-xs font-bold text-slate-400">Plan outfit</span>
+                      <span className="text-footnote font-medium text-slate-400 dark:text-slate-500">Plan outfit</span>
                     </div>
                   )}
                 </div>
@@ -755,9 +788,24 @@ export const WeeklyPlanner: React.FC = () => {
       {/* ===== PHASE: SETUP ===== */}
       {phase === 'setup' && (
         <div className="px-6 pb-8">
-          <p className="text-center text-sm text-slate-400 mb-6">
+          <p className="text-center text-body text-slate-400 dark:text-slate-500 mb-6">
             Tap to set each day's activity
           </p>
+
+          {/* Phase 5: Show generation error if any */}
+          {generateError && (
+            <div className="bg-orange-100 dark:bg-slate-800 p-4 rounded-2xl text-orange-800 dark:text-orange-300 text-body mb-4 font-medium flex gap-2 items-center justify-between">
+              <div className="flex gap-2 items-center">
+                <AlertTriangle size={18} /> {generateError}
+              </div>
+              <button
+                onClick={generateOutfits}
+                className="shrink-0 px-3 py-1.5 bg-orange-600 text-white font-bold rounded-full text-footnote"
+              >
+                Try Again
+              </button>
+            </div>
+          )}
 
           <div className="space-y-3">
             {weekDays.map((day) => {
@@ -768,9 +816,9 @@ export const WeeklyPlanner: React.FC = () => {
               const currentCfg = DAY_TYPE_CONFIG[currentType];
 
               if (isPast) return (
-                <div key={dateKey} className="rounded-[1.5rem] px-4 py-3 bg-slate-100/60 flex items-center gap-3 opacity-50">
-                  <span className="font-bold text-slate-400 text-sm">{SHORT_DAY[day.getDay()]}</span>
-                  <span className="text-slate-400 text-xs">{SHORT_MONTHS[day.getMonth()]} {day.getDate()}</span>
+                <div key={dateKey} className="rounded-[1.5rem] px-4 py-3 bg-slate-100/60 dark:bg-slate-800/60 flex items-center gap-3 opacity-50">
+                  <span className="font-bold text-slate-400 dark:text-slate-500 text-body">{SHORT_DAY[day.getDay()]}</span>
+                  <span className="text-slate-400 dark:text-slate-500 text-footnote">{SHORT_MONTHS[day.getMonth()]} {day.getDate()}</span>
                 </div>
               );
 
@@ -785,10 +833,10 @@ export const WeeklyPlanner: React.FC = () => {
                 >
                   <div className="flex items-center gap-2 mb-3">
                     <currentCfg.icon size={18} className={currentCfg.iconColor} />
-                    <span className="font-bold text-slate-800">{DAY_NAMES[day.getDay()]}</span>
-                    <span className="text-slate-500 text-xs font-bold">{SHORT_MONTHS[day.getMonth()]} {day.getDate()}</span>
+                    <span className="font-bold text-slate-800 dark:text-slate-50">{DAY_NAMES[day.getDay()]}</span>
+                    <span className="text-slate-500 dark:text-slate-400 text-footnote font-medium">{SHORT_MONTHS[day.getMonth()]} {day.getDate()}</span>
                     {isToday && (
-                      <span className="bg-orange-400 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">TODAY</span>
+                      <span className="bg-orange-600 text-white text-caption font-bold px-2 py-0.5 rounded-full">TODAY</span>
                     )}
                   </div>
 
@@ -801,7 +849,7 @@ export const WeeklyPlanner: React.FC = () => {
                           key={type}
                           onClick={() => setDayType(dateKey, type)}
                           className={clsx(
-                            "flex items-center gap-1 px-2.5 py-1.5 rounded-full text-xs font-bold border transition-all active:scale-95",
+                            "flex items-center gap-1 px-2.5 py-1.5 rounded-full text-footnote font-bold border transition-all active:scale-95",
                             isActive ? cfg.activeBg : "bg-white/60 text-slate-600 border-white/80"
                           )}
                         >
@@ -819,7 +867,7 @@ export const WeeklyPlanner: React.FC = () => {
           {/* Generate button */}
           <button
             onClick={generateOutfits}
-            className="w-full mt-6 bg-gradient-to-r from-orange-400 to-pink-400 text-white font-bold py-4 rounded-2xl shadow-lg hover:shadow-xl active:scale-[0.98] transition-all flex items-center justify-center gap-2 text-base"
+            className="w-full mt-6 bg-gradient-to-r from-orange-600 to-pink-400 text-white font-bold py-4 rounded-2xl shadow-lg active:shadow-md active:scale-[0.98] transition-all flex items-center justify-center gap-2 text-body"
           >
             <Sparkles size={20} />
             Generate Outfits
@@ -833,8 +881,8 @@ export const WeeklyPlanner: React.FC = () => {
           <div className="animate-bounce mb-6">
             <Sparkles size={48} className="text-orange-400" />
           </div>
-          <p className="text-lg font-serif font-bold text-slate-800 mb-2">Creating outfits...</p>
-          <p className="text-sm text-slate-400">Matching styles to your closet</p>
+          <h2 className="text-headline font-serif font-bold text-slate-800 dark:text-slate-50 mb-2">Creating outfits...</h2>
+          <p className="text-body text-slate-400 dark:text-slate-500">Matching styles to your closet</p>
         </div>
       )}
 
@@ -850,11 +898,12 @@ export const WeeklyPlanner: React.FC = () => {
               const dayType = generatedDayTypes.get(dateKey);
               const cfg = dayType ? DAY_TYPE_CONFIG[dayType] : null;
               const hasOutfit = itemIds.length > 0;
+              const dayError = dayErrors.get(dateKey);
 
               if (isPast) return (
-                <div key={dateKey} className="rounded-[1.5rem] px-4 py-3 bg-slate-100/60 flex items-center gap-3 opacity-50">
-                  <span className="font-bold text-slate-400 text-sm">{SHORT_DAY[day.getDay()]}</span>
-                  <span className="text-slate-400 text-xs">{SHORT_MONTHS[day.getMonth()]} {day.getDate()}</span>
+                <div key={dateKey} className="rounded-[1.5rem] px-4 py-3 bg-slate-100/60 dark:bg-slate-800/60 flex items-center gap-3 opacity-50">
+                  <span className="font-bold text-slate-400 dark:text-slate-500 text-body">{SHORT_DAY[day.getDay()]}</span>
+                  <span className="text-slate-400 dark:text-slate-500 text-footnote">{SHORT_MONTHS[day.getMonth()]} {day.getDate()}</span>
                   {cfg && <cfg.icon size={14} className={cfg.iconColor} />}
                 </div>
               );
@@ -864,30 +913,32 @@ export const WeeklyPlanner: React.FC = () => {
                   key={dateKey}
                   className={clsx(
                     "rounded-[1.5rem] p-4 transition-all duration-200",
-                    cfg ? cfg.cardBg : "bg-white",
+                    cfg ? cfg.cardBg : "bg-white dark:bg-slate-800",
                     isToday && "ring-2 ring-orange-300"
                   )}
                 >
                   <div className="flex items-center justify-between mb-1">
                     <div className="flex items-center gap-2">
                       {cfg && <cfg.icon size={18} className={cfg.iconColor} />}
-                      <span className="font-bold text-slate-800 text-base">
+                      <span className="font-bold text-slate-800 dark:text-slate-50 text-body">
                         {DAY_NAMES[day.getDay()]}
                       </span>
                     </div>
                     <div className="flex items-center gap-1.5">
                       {isToday && (
-                        <span className="bg-orange-400 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">TODAY</span>
+                        <span className="bg-orange-600 text-white text-caption font-bold px-2 py-0.5 rounded-full">TODAY</span>
                       )}
                       <button
                         onClick={() => regenerateDay(dateKey)}
-                        className="w-8 h-8 rounded-full bg-white/60 flex items-center justify-center text-slate-500 active:scale-90 transition-transform"
+                        aria-label="Regenerate outfit"
+                        className="w-11 h-11 rounded-full bg-white/60 dark:bg-slate-800/60 flex items-center justify-center text-slate-500 dark:text-slate-400 active:scale-90 transition-transform"
                       >
                         <RotateCcw size={14} />
                       </button>
                       <button
                         onClick={() => openBuilder(dateKey)}
-                        className="w-8 h-8 rounded-full bg-white/60 flex items-center justify-center text-slate-500 active:scale-90 transition-transform"
+                        aria-label="Edit outfit"
+                        className="w-11 h-11 rounded-full bg-white/60 dark:bg-slate-800/60 flex items-center justify-center text-slate-500 dark:text-slate-400 active:scale-90 transition-transform"
                       >
                         <Pencil size={14} />
                       </button>
@@ -897,14 +948,14 @@ export const WeeklyPlanner: React.FC = () => {
                   {(() => {
                     const w = weatherMap.get(dateKey) || weatherMapRef.current.get(dateKey);
                     return (
-                      <div className="flex items-center gap-2 text-xs text-slate-500 font-bold mb-3 flex-wrap">
+                      <div className="flex items-center gap-2 text-footnote text-slate-500 dark:text-slate-400 font-medium mb-3 flex-wrap">
                         <span>{SHORT_MONTHS[day.getMonth()]} {day.getDate()}</span>
                         {cfg && <><span>·</span><span>{cfg.label}</span></>}
                         {hasOutfit && <><span>·</span><span>{itemIds.length} items</span></>}
                         {w && (
                           <>
                             <span>·</span>
-                            <span className="inline-flex items-center gap-1 text-slate-600">
+                            <span className="inline-flex items-center gap-1 text-slate-600 dark:text-slate-400">
                               {w.condition === 'Sunny' && <Sun size={12} className="text-amber-400" />}
                               {w.condition === 'Cloudy' && <CloudSun size={12} className="text-slate-400" />}
                               {w.condition === 'Rainy' && <CloudSun size={12} className="text-blue-400" />}
@@ -918,20 +969,35 @@ export const WeeklyPlanner: React.FC = () => {
                     );
                   })()}
 
+                  {/* Phase 5: Inline error per day */}
+                  {dayError && (
+                    <div className="bg-orange-100 dark:bg-slate-700 p-2 rounded-xl text-orange-800 dark:text-orange-300 text-footnote mb-2 font-medium flex gap-2 items-center justify-between">
+                      <div className="flex gap-1 items-center">
+                        <AlertTriangle size={14} /> {dayError}
+                      </div>
+                      <button
+                        onClick={() => regenerateDay(dateKey)}
+                        className="shrink-0 px-2 py-1 bg-orange-600 text-white font-bold rounded-full text-caption"
+                      >
+                        Try Again
+                      </button>
+                    </div>
+                  )}
+
                   {hasOutfit ? (
                     <div className="flex gap-2 overflow-x-auto no-scrollbar">
                       {itemIds.map(id => {
                         const item = itemMap.get(id);
                         if (!item) return null;
                         return (
-                          <div key={id} className="w-16 h-16 shrink-0 rounded-xl overflow-hidden shadow-sm border-2 border-white">
+                          <div key={id} className="w-16 h-16 shrink-0 rounded-xl overflow-hidden shadow-sm border-2 border-white dark:border-slate-700">
                             <img src={item.image} alt={item.category} className="w-full h-full object-cover" />
                           </div>
                         );
                       })}
                     </div>
                   ) : (
-                    <p className="text-xs font-bold text-slate-400 py-2">No outfit generated</p>
+                    <p className="text-footnote font-medium text-slate-400 dark:text-slate-500 py-2">No outfit generated</p>
                   )}
                 </div>
               );
@@ -941,7 +1007,7 @@ export const WeeklyPlanner: React.FC = () => {
           {/* Save All button */}
           <button
             onClick={saveAllPlans}
-            className="w-full mt-6 bg-slate-900 text-white font-bold py-4 rounded-2xl shadow-lg hover:shadow-xl active:scale-[0.98] transition-all flex items-center justify-center gap-2 text-base"
+            className="w-full mt-6 bg-slate-900 dark:bg-slate-50 text-white dark:text-slate-900 font-bold py-4 rounded-2xl shadow-lg active:shadow-md active:scale-[0.98] transition-all flex items-center justify-center gap-2 text-body"
           >
             <Check size={20} />
             Save Week
@@ -954,31 +1020,32 @@ export const WeeklyPlanner: React.FC = () => {
         <div className="fixed inset-0 z-50 flex flex-col">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={closeBuilder} />
 
-          <div className="relative mt-auto bg-orange-50 rounded-t-[2rem] max-h-[85dvh] flex flex-col">
-            <div className="sticky top-0 bg-orange-50 rounded-t-[2rem] px-6 pt-5 pb-3 z-10">
-              <div className="w-10 h-1 bg-slate-300 rounded-full mx-auto mb-4" />
+          <div className="relative mt-auto bg-orange-50 dark:bg-slate-900 rounded-t-[2rem] max-h-[85dvh] flex flex-col">
+            <div className="sticky top-0 bg-orange-50 dark:bg-slate-900 rounded-t-[2rem] px-6 pt-5 pb-3 z-10">
+              <div className="w-10 h-1 bg-slate-300 dark:bg-slate-600 rounded-full mx-auto mb-4" />
               <div className="flex items-center justify-between">
                 <div>
-                  <h2 className="font-serif font-bold text-lg text-slate-800">
+                  <h2 className="font-serif font-bold text-headline text-slate-800 dark:text-slate-50">
                     {(() => {
                       const d = new Date(selectedDate + 'T00:00:00');
                       return `${DAY_NAMES[d.getDay()]}, ${SHORT_MONTHS[d.getMonth()]} ${d.getDate()}`;
                     })()}
                   </h2>
-                  <p className="text-sm text-slate-400 font-bold">
+                  <p className="text-body text-slate-400 dark:text-slate-500 font-medium">
                     {pendingItemIds.length} item{pendingItemIds.length !== 1 ? 's' : ''} selected
                   </p>
                 </div>
                 <div className="flex gap-2">
                   <button
                     onClick={clearPlan}
-                    className="px-4 py-2 rounded-full text-sm font-bold text-red-400 bg-red-50 hover:bg-red-100 transition-colors flex items-center gap-1"
+                    aria-label="Clear outfit selection"
+                    className="px-4 py-2 rounded-full text-body font-bold text-red-400 bg-red-50 dark:bg-red-900/30 hover:bg-red-100 transition-colors flex items-center gap-1"
                   >
                     <Trash2 size={14} /> Clear
                   </button>
                   <button
                     onClick={savePlan}
-                    className="px-5 py-2 rounded-full text-sm font-bold text-white bg-orange-400 hover:bg-orange-500 transition-colors shadow-md flex items-center gap-1"
+                    className="px-5 py-2 rounded-full text-body font-bold text-white bg-orange-600 hover:bg-orange-700 transition-colors shadow-md flex items-center gap-1"
                   >
                     <Check size={14} /> Save
                   </button>
@@ -1018,11 +1085,11 @@ export const WeeklyPlanner: React.FC = () => {
                       key={key}
                       onClick={() => setActiveFilter(key)}
                       className={clsx(
-                        "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap shrink-0 transition-colors",
-                        isActive ? "bg-orange-400 text-white" : "bg-white text-slate-500 border border-slate-200"
+                        "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-footnote font-bold whitespace-nowrap shrink-0 transition-colors",
+                        isActive ? "bg-orange-600 text-white" : "bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700"
                       )}
                     >
-                      <Icon size={14} className={isActive ? "text-white" : "text-slate-400"} />
+                      <Icon size={14} className={isActive ? "text-white" : "text-slate-400 dark:text-slate-500"} />
                       {label}
                     </button>
                   );
@@ -1033,14 +1100,14 @@ export const WeeklyPlanner: React.FC = () => {
             <div className="overflow-y-auto flex-1 px-6 pb-8">
               {allItems.length === 0 ? (
                 <div className="text-center py-12">
-                  <p className="text-slate-400 font-bold">No items in closet yet.</p>
-                  <p className="text-sm text-slate-300 mt-1">Add some clothes first!</p>
+                  <p className="text-slate-400 dark:text-slate-500 font-medium">No items in closet yet.</p>
+                  <p className="text-body text-slate-300 dark:text-slate-600 mt-1">Add some clothes first!</p>
                 </div>
               ) : filteredItems !== null ? (
                 filteredItems.length === 0 ? (
                   <div className="text-center py-12">
-                    <p className="text-slate-400 font-bold">No items match this filter.</p>
-                    <p className="text-sm text-slate-300 mt-1">Try a different filter.</p>
+                    <p className="text-slate-400 dark:text-slate-500 font-medium">No items match this filter.</p>
+                    <p className="text-body text-slate-300 dark:text-slate-600 mt-1">Try a different filter.</p>
                   </div>
                 ) : (
                   <div className="grid grid-cols-4 gap-2">
@@ -1050,7 +1117,7 @@ export const WeeklyPlanner: React.FC = () => {
               ) : (
                 grouped.map(({ category, items }) => (
                   <div key={category} className="mb-5">
-                    <h3 className="text-sm font-bold text-slate-500 mb-2 uppercase tracking-wide">{category}</h3>
+                    <h3 className="text-body font-bold text-slate-500 dark:text-slate-400 mb-2 uppercase tracking-wide">{category}</h3>
                     <div className="grid grid-cols-4 gap-2">
                       {items.map(item => renderItemCell(item))}
                     </div>

@@ -13,15 +13,15 @@ export const AddItem: React.FC = () => {
   const { activeChildId } = useActiveChild();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
-  
+
   // Steps: upload -> preview -> crop -> analyzing -> review
   const [step, setStep] = useState<'upload' | 'preview' | 'crop' | 'analyzing' | 'review'>('upload');
-  
+
   // Image States
   const [originalImage, setOriginalImage] = useState<string | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [lastAnalysisImage, setLastAnalysisImage] = useState<string | null>(null);
-  
+
   // --- CROP STATE ---
   type CropMode = 'free' | '1:1' | '4:3' | '3:4';
   const cropModes: { mode: CropMode; label: string; ratio: number | null }[] = [
@@ -33,7 +33,7 @@ export const AddItem: React.FC = () => {
   const [cropMode, setCropMode] = useState<CropMode>('free');
   const [maskDims, setMaskDims] = useState({ w: 0, h: 0 }); // The size of the crop window
   const [imgState, setImgState] = useState({ x: 0, y: 0, scale: 1, rotate: 0 }); // Image transform relative to center
-  
+
   // Refs for gesture handling
   const imgRef = useRef<HTMLImageElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -45,7 +45,7 @@ export const AddItem: React.FC = () => {
     startDist?: number;
     activeHandle?: string; // 'tl', 'tr', 'bl', 'br', 't', 'b', 'l', 'r'
   } | null>(null);
-  
+
   // Recrop State
   const [recropIndex, setRecropIndex] = useState<number | null>(null);
 
@@ -54,7 +54,7 @@ export const AddItem: React.FC = () => {
 
   // Track source image per item for recropping
   const [sourceImages, setSourceImages] = useState<Map<number, string>>(new Map());
-  
+
   // Refine/Rescan Menu State
   const [rescanMenuOpen, setRescanMenuOpen] = useState(false);
   const [isRefining, setIsRefining] = useState(false);
@@ -66,6 +66,17 @@ export const AddItem: React.FC = () => {
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [reviewItems, setReviewItems] = useState<Partial<ClothingItem>[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
+
+  // Phase 10: Auto-open camera on mount when step is 'upload'
+  useEffect(() => {
+    if (step === 'upload') {
+      // Small delay to ensure the input is mounted
+      const timer = setTimeout(() => {
+        cameraInputRef.current?.click();
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, []); // Only on initial mount
 
   // Clear HD search state when switching items
   useEffect(() => {
@@ -191,21 +202,21 @@ export const AddItem: React.FC = () => {
       img.onload = () => {
           // Viewport calc (approximate visible height available)
           const vw = window.innerWidth;
-          const vh = window.innerHeight - 200; 
-          
+          const vh = window.innerHeight - 200;
+
           const imgW = img.naturalWidth;
           const imgH = img.naturalHeight;
           const imgAspect = imgW / imgH;
-          
+
           // Initial Mask: Fit image aspect ratio within 85% of viewport
           let mw = vw * 0.85;
           let mh = mw / imgAspect;
-          
+
           if (mh > vh * 0.85) {
               mh = vh * 0.85;
               mw = mh * imgAspect;
           }
-          
+
           // Determine initial scale to fit image into mask exactly
           // We display the image at this scale initially
           const scale = mw / imgW;
@@ -259,21 +270,21 @@ export const AddItem: React.FC = () => {
     if (!activeGesture.current) return;
     const g = activeGesture.current;
     const touches = Array.from(e.touches) as React.Touch[];
-    
+
     // Prevent scrolling while cropping
-    if(e.cancelable) e.preventDefault(); 
+    if(e.cancelable) e.preventDefault();
 
     if (g.type === 'resize' && touches.length === 1) {
         const dx = touches[0].clientX - g.startTouches![0].x;
         const dy = touches[0].clientY - g.startTouches![0].y;
-        
+
         let newW = g.startMask!.w;
         let newH = g.startMask!.h;
 
         // Symmetric resizing logic based on handle
         // Using "includes" allows 'tl', 'tr' to respond to both side and top pulls
         // Also supports explicit edge handles 't', 'b', 'l', 'r'
-        if (g.activeHandle === 'l' || g.activeHandle?.includes('l')) newW -= dx * 2; 
+        if (g.activeHandle === 'l' || g.activeHandle?.includes('l')) newW -= dx * 2;
         if (g.activeHandle === 'r' || g.activeHandle?.includes('r')) newW += dx * 2;
         if (g.activeHandle === 't' || g.activeHandle?.includes('t')) newH -= dy * 2;
         if (g.activeHandle === 'b' || g.activeHandle?.includes('b')) newH += dy * 2;
@@ -332,7 +343,7 @@ export const AddItem: React.FC = () => {
     if (g.type === 'pinch' && touches.length === 2) {
         const dist = getDistance(touches[0], touches[1]);
         const scaleFactor = dist / g.startDist!;
-        
+
         setImgState(prev => ({
             ...prev,
             scale: Math.min(5, Math.max(0.2, g.startImg!.scale * scaleFactor))
@@ -381,7 +392,7 @@ export const AddItem: React.FC = () => {
     ctx.restore();
 
     const croppedBase64 = canvas.toDataURL('image/jpeg', 0.9);
-    
+
     if (recropIndex !== null) {
         const updatedItems = [...reviewItems];
         updatedItems[recropIndex] = { ...updatedItems[recropIndex], image: croppedBase64 };
@@ -392,7 +403,7 @@ export const AddItem: React.FC = () => {
         startAnalysis(croppedBase64);
     }
   };
-  
+
   const cancelCrop = () => {
       if (recropIndex !== null) {
           setRecropIndex(null);
@@ -449,10 +460,10 @@ export const AddItem: React.FC = () => {
   const handleRefineCurrentItem = async () => {
       const current = reviewItems[currentIndex];
       if (!current.image) return;
-      
+
       setIsRefining(true);
       setAnalysisError(null);
-      
+
       try {
           const results = await analyzeClothingImage(current.image);
           if (results && results.length > 0) {
@@ -462,7 +473,7 @@ export const AddItem: React.FC = () => {
                   ...current,
                   ...refined,
                   // Use new image if available (tighter crop), otherwise keep manual crop
-                  image: refined.image || current.image 
+                  image: refined.image || current.image
               };
               setReviewItems(updatedItems);
           } else {
@@ -577,36 +588,47 @@ export const AddItem: React.FC = () => {
     }
   };
 
+  // Phase 5: Retry analysis on error
+  const handleRetryAnalysis = () => {
+    setAnalysisError(null);
+    if (lastAnalysisImage) {
+      startAnalysis(lastAnalysisImage);
+    } else if (originalImage) {
+      startAnalysis(originalImage);
+    }
+  };
+
   if (step === 'upload') {
     return (
-      <div className="h-full flex flex-col bg-orange-50 relative pb-4">
+      <div className="h-full flex flex-col bg-orange-50 dark:bg-slate-900 relative pb-4">
         <button
             onClick={() => navigate('/')}
-            className="absolute top-6 right-6 p-3 bg-white/80 backdrop-blur rounded-full text-slate-400 hover:text-slate-600 shadow-sm z-10"
+            aria-label="Close"
+            className="absolute top-6 right-6 w-11 h-11 bg-white/80 dark:bg-slate-800 backdrop-blur rounded-full text-slate-400 dark:text-slate-500 hover:text-slate-600 shadow-sm z-10 flex items-center justify-center"
         >
             <X size={28} />
         </button>
 
         <div className="flex-1 flex flex-col items-center justify-center min-h-[80vh] p-8 text-center space-y-8">
-          <div className="w-28 h-28 bg-white rounded-[2rem] shadow-lg flex items-center justify-center text-sky-500 mb-2 transform rotate-3">
+          <div className="w-28 h-28 bg-white dark:bg-slate-800 rounded-[2rem] shadow-lg flex items-center justify-center text-sky-500 mb-2 transform rotate-3">
             <Camera size={56} strokeWidth={2} />
           </div>
           <div>
-            <h1 className="text-4xl text-slate-900 mb-3">Add Clothes</h1>
-            <p className="text-slate-500 max-w-[280px] mx-auto text-lg leading-relaxed font-medium">
+            <h1 className="text-largeTitle text-slate-900 dark:text-slate-50 mb-3">Add Clothes</h1>
+            <p className="text-slate-500 dark:text-slate-400 max-w-[280px] mx-auto text-headline leading-relaxed font-medium">
                 Snap a photo or upload an <strong>order screenshot</strong> to auto-import items.
             </p>
           </div>
-          
-          <input 
-            type="file" 
-            ref={cameraInputRef} 
-            onChange={handleFileChange} 
-            accept="image/*" 
+
+          <input
+            type="file"
+            ref={cameraInputRef}
+            onChange={handleFileChange}
+            accept="image/*"
             capture="environment"
-            className="hidden" 
+            className="hidden"
           />
-          
+
           <input
             type="file"
             ref={fileInputRef}
@@ -615,23 +637,30 @@ export const AddItem: React.FC = () => {
             multiple
             className="hidden"
           />
-          
+
           <div className="w-full max-w-xs space-y-4">
-            <button 
+            <button
                 onClick={() => cameraInputRef.current?.click()}
-                className="w-full bg-sky-400 text-white font-bold py-5 rounded-full shadow-xl hover:shadow-2xl hover:scale-105 transition-all text-lg flex items-center justify-center gap-3"
+                className="w-full bg-sky-600 text-white font-bold py-5 rounded-full shadow-xl hover:shadow-2xl active:scale-95 transition-all text-headline flex items-center justify-center gap-3"
             >
                 <Camera size={24} /> Take Photo
             </button>
-            <button 
+            <button
                 onClick={() => fileInputRef.current?.click()}
-                className="w-full bg-white text-slate-700 font-bold py-5 rounded-full shadow-sm hover:shadow-md transition-all text-lg flex items-center justify-center gap-3"
+                className="w-full bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-50 font-bold py-5 rounded-full shadow-sm hover:shadow-md transition-all text-headline flex items-center justify-center gap-3"
             >
                 <FileText size={24} /> Import Order Screenshot
             </button>
-            <p className="text-center text-xs text-slate-400 font-bold -mt-2">
+            <p className="text-center text-footnote text-slate-400 dark:text-slate-500 font-medium -mt-2">
                 Works with Shop App, Amazon, & Email receipts
             </p>
+            {/* Phase 10: "or upload from library" text link */}
+            <button
+                onClick={() => fileInputRef.current?.click()}
+                className="block mx-auto text-footnote text-sky-500 font-medium underline"
+            >
+                or upload from library
+            </button>
           </div>
         </div>
       </div>
@@ -642,42 +671,44 @@ export const AddItem: React.FC = () => {
       return (
           <div className="h-full flex flex-col bg-slate-900 relative">
                <div className="absolute top-0 left-0 right-0 p-4 z-20 flex justify-between items-center text-white pt-[calc(1rem+env(safe-area-inset-top))]">
-                  <button onClick={() => setStep('upload')} className="p-2 bg-black/20 backdrop-blur rounded-full hover:bg-black/30 transition-colors">
+                  <button onClick={() => setStep('upload')} aria-label="Close preview" className="w-11 h-11 bg-black/20 backdrop-blur rounded-full hover:bg-black/30 transition-colors flex items-center justify-center">
                       <X size={24} />
                   </button>
                </div>
-               
+
                <div className="flex-1 min-h-0 flex items-center justify-center p-6 bg-slate-900/50 relative z-10">
                   {originalImage && (
                     <img src={originalImage} alt="Preview" className="max-w-full max-h-full object-contain shadow-2xl rounded-lg" />
                   )}
                </div>
-  
+
                <div className="p-6 bg-slate-900 flex gap-6 justify-center items-center z-20 relative pb-[calc(2rem+env(safe-area-inset-bottom))]">
-                   <button 
+                   <button
                       onClick={() => {
                         setStep('upload');
                         setOriginalImage(null);
                       }}
-                      className="flex flex-col items-center gap-1 text-slate-400 hover:text-red-400 transition-colors p-2"
+                      aria-label="Delete photo"
+                      className="flex flex-col items-center gap-1 text-slate-400 hover:text-red-400 transition-colors p-3"
                    >
                       <Trash2 size={24} />
-                      <span className="text-xs font-bold">Delete</span>
+                      <span className="text-footnote font-medium">Delete</span>
                    </button>
 
-                   <button 
+                   <button
                       onClick={() => initCrop(originalImage!)}
-                      className="flex flex-col items-center gap-1 text-slate-400 hover:text-white transition-colors p-2"
+                      aria-label="Crop photo"
+                      className="flex flex-col items-center gap-1 text-slate-400 hover:text-white transition-colors p-3"
                    >
                       <CropIcon size={24} />
-                      <span className="text-xs font-bold">Crop</span>
+                      <span className="text-footnote font-medium">Crop</span>
                    </button>
-  
-                   <button 
+
+                   <button
                       onClick={() => startAnalysis(originalImage!)}
-                      className="flex-1 bg-gradient-to-r from-sky-400 to-blue-500 text-white font-bold py-4 rounded-full shadow-lg hover:shadow-sky-500/30 hover:scale-105 transition-all flex items-center justify-center gap-2"
+                      className="flex-1 bg-gradient-to-r from-sky-600 to-blue-500 text-white font-bold py-4 rounded-full shadow-lg hover:shadow-sky-500/30 active:scale-95 transition-all flex items-center justify-center gap-2"
                    >
-                      <Sparkles size={20} fill="currentColor" className="text-white/20" /> 
+                      <Sparkles size={20} fill="currentColor" className="text-white/20" />
                       <span>Analyze</span>
                    </button>
                </div>
@@ -689,7 +720,7 @@ export const AddItem: React.FC = () => {
       return (
           <div className="fixed inset-0 z-[60] flex flex-col bg-black overflow-hidden touch-none select-none">
               {/* Main Crop Area */}
-              <div 
+              <div
                 ref={containerRef}
                 className="flex-1 relative w-full h-full flex items-center justify-center"
                 onTouchStart={handleTouchStart}
@@ -699,12 +730,12 @@ export const AddItem: React.FC = () => {
                   {/* The Image (Background Layer) - Z-0 */}
                   <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0">
                       {originalImage && (
-                        <img 
+                        <img
                             ref={imgRef}
-                            src={originalImage} 
-                            alt="Crop Target" 
+                            src={originalImage}
+                            alt="Crop Target"
                             className="max-w-none max-h-none origin-center"
-                            style={{ 
+                            style={{
                                 transform: `translate(${imgState.x}px, ${imgState.y}px) scale(${imgState.scale}) rotate(${imgState.rotate}deg)`,
                             }}
                         />
@@ -713,10 +744,10 @@ export const AddItem: React.FC = () => {
 
                   {/* Visible Crop Window (Cutout) - Z-10 */}
                   {/* Shadow creates the dark overlay outside the box */}
-                  <div 
+                  <div
                     className="absolute z-10 pointer-events-none border-2 border-white shadow-[0_0_0_9999px_rgba(0,0,0,0.8)]"
-                    style={{ 
-                        width: maskDims.w, 
+                    style={{
+                        width: maskDims.w,
                         height: maskDims.h,
                     }}
                   >
@@ -733,16 +764,16 @@ export const AddItem: React.FC = () => {
                        </div>
 
                        {/* Interactive Corners (Z-20) */}
-                       <div data-handle="tl" className="absolute -top-4 -left-4 w-10 h-10 bg-transparent z-20 flex items-end justify-end pointer-events-auto">
+                       <div data-handle="tl" className="absolute -top-4 -left-4 w-11 h-11 bg-transparent z-20 flex items-end justify-end pointer-events-auto">
                             <div className="w-5 h-5 border-t-4 border-l-4 border-white pointer-events-none"></div>
                        </div>
-                       <div data-handle="tr" className="absolute -top-4 -right-4 w-10 h-10 bg-transparent z-20 flex items-end justify-start pointer-events-auto">
+                       <div data-handle="tr" className="absolute -top-4 -right-4 w-11 h-11 bg-transparent z-20 flex items-end justify-start pointer-events-auto">
                             <div className="w-5 h-5 border-t-4 border-r-4 border-white pointer-events-none"></div>
                        </div>
-                       <div data-handle="bl" className="absolute -bottom-4 -left-4 w-10 h-10 bg-transparent z-20 flex items-start justify-end pointer-events-auto">
+                       <div data-handle="bl" className="absolute -bottom-4 -left-4 w-11 h-11 bg-transparent z-20 flex items-start justify-end pointer-events-auto">
                             <div className="w-5 h-5 border-b-4 border-l-4 border-white pointer-events-none"></div>
                        </div>
-                       <div data-handle="br" className="absolute -bottom-4 -right-4 w-10 h-10 bg-transparent z-20 flex items-start justify-start pointer-events-auto">
+                       <div data-handle="br" className="absolute -bottom-4 -right-4 w-11 h-11 bg-transparent z-20 flex items-start justify-start pointer-events-auto">
                             <div className="w-5 h-5 border-b-4 border-r-4 border-white pointer-events-none"></div>
                        </div>
 
@@ -762,7 +793,7 @@ export const AddItem: React.FC = () => {
                               <button
                                   key={mode}
                                   onClick={() => applyAspectRatio(mode)}
-                                  className={`px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider transition-colors ${
+                                  className={`px-3 py-1.5 rounded-full text-footnote font-bold uppercase tracking-wider transition-colors ${
                                       cropMode === mode
                                           ? 'bg-white text-black'
                                           : 'bg-white/10 text-white/60 hover:bg-white/20'
@@ -775,22 +806,22 @@ export const AddItem: React.FC = () => {
                       </div>
 
                       <div className="flex justify-between items-center gap-4">
-                          <button 
+                          <button
                             onClick={() => setImgState(s => ({...s, rotate: s.rotate - 90}))}
-                            className="p-3 bg-white/10 rounded-full text-white hover:bg-white/20 transition-colors"
-                            title="Rotate"
+                            aria-label="Rotate image"
+                            className="w-11 h-11 bg-white/10 rounded-full text-white hover:bg-white/20 transition-colors flex items-center justify-center"
                           >
                              <RotateCw size={20} className="-scale-x-100" />
                           </button>
-                          
+
                           <div className="flex gap-4 flex-1 justify-end">
-                            <button 
+                            <button
                                 onClick={cancelCrop}
                                 className="text-white font-bold px-4 py-3 rounded-full hover:bg-white/10 transition-colors"
                             >
                                 Cancel
                             </button>
-                            <button 
+                            <button
                                 onClick={confirmCrop}
                                 className="bg-white text-black px-6 py-3 rounded-full font-bold shadow-lg active:scale-95 transition-transform flex items-center gap-2"
                             >
@@ -806,15 +837,15 @@ export const AddItem: React.FC = () => {
 
   if (step === 'analyzing') {
     return (
-      <div className="h-full flex flex-col items-center justify-center bg-orange-50 p-6 z-[60] relative">
-        <div className="relative w-48 h-48 mb-8 bg-white p-2 rounded-[2.5rem] shadow-lg rotate-3 overflow-hidden">
+      <div className="h-full flex flex-col items-center justify-center bg-orange-50 dark:bg-slate-900 p-6 z-[60] relative">
+        <div className="relative w-48 h-48 mb-8 bg-white dark:bg-slate-800 p-2 rounded-[2.5rem] shadow-lg rotate-3 overflow-hidden">
           {imagePreview && <img src={imagePreview} alt="Analyzing" className="w-full h-full object-cover rounded-[2rem] opacity-50" />}
           <div className="absolute inset-0 flex items-center justify-center">
             <Loader2 size={48} className="text-pink-400 animate-spin" />
           </div>
         </div>
-        <h2 className="text-3xl text-slate-800 mb-2">Analyzing...</h2>
-        <p className="text-slate-500 font-bold">{hdProgress || 'Scanning for clothes...'}</p>
+        <h2 className="text-largeTitle text-slate-800 dark:text-slate-50 mb-2">Analyzing...</h2>
+        <p className="text-slate-500 dark:text-slate-400 font-medium">{hdProgress || 'Scanning for clothes...'}</p>
       </div>
     );
   }
@@ -822,38 +853,49 @@ export const AddItem: React.FC = () => {
   const currentItem = reviewItems[currentIndex];
 
   return (
-    <div className="min-h-full bg-orange-50 p-6 pb-4 max-w-md mx-auto">
+    <div className="min-h-full bg-orange-50 dark:bg-slate-900 p-6 pb-4 max-w-md mx-auto">
       <header className="flex justify-between items-center mb-8">
-        <h1 className="text-2xl text-slate-800">Review</h1>
-        <button onClick={() => setStep('upload')} className="bg-white p-2 rounded-full text-slate-400 hover:text-slate-600 shadow-sm">
+        <h1 className="text-title text-slate-800 dark:text-slate-50">Review</h1>
+        <button onClick={() => setStep('upload')} aria-label="Close review" className="bg-white dark:bg-slate-800 w-11 h-11 rounded-full text-slate-400 dark:text-slate-500 hover:text-slate-600 shadow-sm flex items-center justify-center">
             <X size={24} />
         </button>
       </header>
 
+      {/* Phase 5: Error with Try Again button */}
       {analysisError && (
-        <div className="bg-orange-100 p-4 rounded-2xl text-orange-800 text-sm mb-6 font-bold flex gap-2 items-center">
-          <AlertTriangle size={18} /> {analysisError}
+        <div className="bg-orange-100 dark:bg-slate-800 p-4 rounded-2xl text-orange-800 dark:text-orange-300 text-body mb-6 font-medium flex gap-2 items-center justify-between">
+          <div className="flex gap-2 items-center">
+            <AlertTriangle size={18} /> {analysisError}
+          </div>
+          <button
+            onClick={handleRetryAnalysis}
+            className="shrink-0 px-3 py-1.5 bg-orange-600 text-white font-bold rounded-full text-footnote"
+          >
+            Try Again
+          </button>
         </div>
       )}
 
       {reviewItems.length > 1 && (
-        <div className="flex items-center justify-between mb-6 bg-white p-2 rounded-full shadow-sm">
-          <button 
+        <div className="flex items-center justify-between mb-6 bg-white dark:bg-slate-800 p-2 rounded-full shadow-sm">
+          <button
             onClick={() => setCurrentIndex(c => Math.max(0, c - 1))}
             disabled={currentIndex === 0}
-            className="p-3 text-slate-600 disabled:opacity-20 hover:bg-slate-50 rounded-full transition"
+            aria-label="Previous item"
+            className="w-11 h-11 text-slate-600 dark:text-slate-400 disabled:opacity-20 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-full transition flex items-center justify-center"
           >
             <ChevronLeft size={20} />
           </button>
-          
-          <div className="text-sm font-bold text-slate-500">
+
+          <div className="text-body font-bold text-slate-500 dark:text-slate-400">
             {currentIndex + 1} of {reviewItems.length}
           </div>
-          
-          <button 
+
+          <button
             onClick={() => setCurrentIndex(c => Math.min(reviewItems.length - 1, c + 1))}
             disabled={currentIndex === reviewItems.length - 1}
-            className="p-3 text-slate-600 disabled:opacity-20 hover:bg-slate-50 rounded-full transition"
+            aria-label="Next item"
+            className="w-11 h-11 text-slate-600 dark:text-slate-400 disabled:opacity-20 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-full transition flex items-center justify-center"
           >
             <ChevronRight size={20} />
           </button>
@@ -861,28 +903,28 @@ export const AddItem: React.FC = () => {
       )}
 
       <div className="space-y-6">
-        <div className="relative w-full bg-white p-4 rounded-[2.5rem] shadow-sm">
-           <div className="w-full aspect-square rounded-[2rem] overflow-hidden bg-slate-50 relative group">
+        <div className="relative w-full bg-white dark:bg-slate-800 p-4 rounded-[2.5rem] shadow-sm">
+           <div className="w-full aspect-square rounded-[2rem] overflow-hidden bg-slate-50 dark:bg-slate-800 relative group">
                 {currentItem.image ? (
                     <img src={currentItem.image} alt="Preview" className="w-full h-full object-contain" />
                 ) : (
-                    <div className="w-full h-full flex items-center justify-center text-slate-300 font-bold">No Image</div>
+                    <div className="w-full h-full flex items-center justify-center text-slate-300 font-medium">No Image</div>
                 )}
-                
+
                 {/* Refine Loader Overlay */}
                 {isRefining && (
-                    <div className="absolute inset-0 bg-white/50 backdrop-blur-sm flex items-center justify-center z-40">
+                    <div className="absolute inset-0 bg-white/50 dark:bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-40">
                          <Loader2 className="animate-spin text-sky-500" size={32} />
                     </div>
                 )}
 
-                <button 
+                <button
                      onClick={() => {
                         setRecropIndex(currentIndex);
                         initCrop(sourceImages.get(currentIndex) || originalImage || currentItem.image!);
                      }}
-                     className="absolute top-6 left-6 p-3 bg-white/90 backdrop-blur rounded-xl text-slate-400 hover:text-sky-500 shadow-sm transition-colors"
-                     title="Manual Crop"
+                     aria-label="Crop image"
+                     className="absolute top-6 left-6 w-11 h-11 bg-white/90 dark:bg-slate-800/90 backdrop-blur rounded-xl text-slate-400 dark:text-slate-500 hover:text-sky-500 shadow-sm transition-colors flex items-center justify-center"
                 >
                      <CropIcon size={20} />
                 </button>
@@ -890,34 +932,34 @@ export const AddItem: React.FC = () => {
                 {/* --- Enhanced Rescan Button with Menu --- */}
                 <div className="absolute bottom-6 right-6 flex flex-col items-end gap-2 z-30">
                     {rescanMenuOpen && (
-                        <div className="bg-white/95 backdrop-blur rounded-2xl shadow-xl p-2 flex flex-col gap-1 min-w-[180px] animate-in slide-in-from-bottom-2 fade-in border border-slate-100">
-                            <button 
+                        <div className="bg-white/95 dark:bg-slate-800/95 backdrop-blur rounded-2xl shadow-xl p-2 flex flex-col gap-1 min-w-[180px] animate-in slide-in-from-bottom-2 fade-in border border-slate-100 dark:border-slate-700">
+                            <button
                                 onClick={() => {
                                     setRescanMenuOpen(false);
                                     startAnalysis(lastAnalysisImage || originalImage || currentItem.image!);
                                 }}
-                                className="text-left px-3 py-3 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded-xl flex items-center gap-2"
+                                className="text-left px-3 py-3 text-footnote font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl flex items-center gap-2"
                             >
                                 <Scan size={14} /> Rescan Full Photo
                             </button>
-                            <button 
+                            <button
                                 onClick={() => {
                                     setRescanMenuOpen(false);
                                     handleRefineCurrentItem();
                                 }}
-                                className="text-left px-3 py-3 text-xs font-bold text-sky-500 hover:bg-sky-50 rounded-xl flex items-center gap-2"
+                                className="text-left px-3 py-3 text-footnote font-bold text-sky-500 hover:bg-sky-50 dark:hover:bg-sky-900/30 rounded-xl flex items-center gap-2"
                             >
                                 <ScanLine size={14} /> Refine This Item
                             </button>
                         </div>
                     )}
-                    <button 
+                    <button
                             onClick={() => setRescanMenuOpen(!rescanMenuOpen)}
+                            aria-label="Analysis options"
                             className={clsx(
-                                "p-3 backdrop-blur rounded-xl shadow-sm transition-colors",
-                                rescanMenuOpen ? "bg-sky-400 text-white" : "bg-white/90 text-slate-400 hover:text-sky-500"
+                                "w-11 h-11 backdrop-blur rounded-xl shadow-sm transition-colors flex items-center justify-center",
+                                rescanMenuOpen ? "bg-sky-600 text-white" : "bg-white/90 dark:bg-slate-800/90 text-slate-400 dark:text-slate-500 hover:text-sky-500"
                             )}
-                            title="Analysis Options"
                     >
                             <RefreshCw size={20} className={clsx(rescanMenuOpen && "rotate-90 transition-transform")} />
                     </button>
@@ -925,28 +967,28 @@ export const AddItem: React.FC = () => {
 
                 <button
                      onClick={handleDeleteCurrent}
-                     className="absolute top-6 right-6 p-3 bg-white/90 backdrop-blur rounded-xl text-slate-400 hover:text-red-500 shadow-sm transition-colors"
-                     title="Remove Item"
+                     aria-label="Remove item"
+                     className="absolute top-6 right-6 w-11 h-11 bg-white/90 dark:bg-slate-800/90 backdrop-blur rounded-xl text-slate-400 dark:text-slate-500 hover:text-red-500 shadow-sm transition-colors flex items-center justify-center"
                 >
                      <Trash2 size={20} />
                 </button>
 
                 {/* HD Image Search Loading Overlay */}
                 {hdSearching && (
-                    <div className="absolute inset-0 bg-white/50 backdrop-blur-sm flex flex-col items-center justify-center z-40 gap-2">
+                    <div className="absolute inset-0 bg-white/50 dark:bg-slate-900/50 backdrop-blur-sm flex flex-col items-center justify-center z-40 gap-2">
                          <Loader2 className="animate-spin text-sky-500" size={32} />
-                         <span className="text-xs font-bold text-sky-600">Finding HD image...</span>
+                         <span className="text-footnote font-medium text-sky-600">Finding HD image...</span>
                     </div>
                 )}
 
                 {/* HD Preview Overlay */}
                 {hdPreviewUrl && (
-                    <div className="absolute inset-0 bg-white flex flex-col items-center justify-center z-40 p-4 gap-3">
-                         <p className="text-xs font-bold text-green-600">HD Image Found!</p>
+                    <div className="absolute inset-0 bg-white dark:bg-slate-800 flex flex-col items-center justify-center z-40 p-4 gap-3">
+                         <p className="text-footnote font-bold text-green-600">HD Image Found!</p>
                          <img src={hdPreviewUrl} alt="HD" className="max-w-full max-h-[55%] object-contain rounded-xl shadow-md" />
                          <div className="flex gap-3">
-                             <button onClick={handleDismissHDPreview} className="px-5 py-2.5 bg-slate-100 text-slate-600 font-bold rounded-full text-sm">Keep Original</button>
-                             <button onClick={handleUseHDImage} className="px-5 py-2.5 bg-sky-400 text-white font-bold rounded-full text-sm shadow-md">Use HD</button>
+                             <button onClick={handleDismissHDPreview} className="px-5 py-2.5 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-bold rounded-full text-body">Keep Original</button>
+                             <button onClick={handleUseHDImage} className="px-5 py-2.5 bg-sky-600 text-white font-bold rounded-full text-body shadow-md">Use HD</button>
                          </div>
                     </div>
                 )}
@@ -957,70 +999,70 @@ export const AddItem: React.FC = () => {
                <button
                    onClick={handleFindHDImage}
                    disabled={hdSearching}
-                   className="flex items-center gap-2 px-3 py-1.5 text-slate-400 font-bold rounded-full text-[11px] hover:text-sky-500 hover:bg-sky-50 transition-all disabled:opacity-50"
+                   className="flex items-center gap-2 px-3 py-1.5 text-slate-400 dark:text-slate-500 font-medium rounded-full text-caption hover:text-sky-500 hover:bg-sky-50 dark:hover:bg-sky-900/30 transition-all disabled:opacity-50"
                >
                    <ImagePlus size={12} />
                    {hdSearching ? 'Searching...' : 'Find HD'}
                </button>
                {hdSearchError && (
-                   <span className="text-[10px] text-red-400 font-bold">{hdSearchError}</span>
+                   <span className="text-caption text-red-400 font-medium">{hdSearchError}</span>
                )}
            </div>
         </div>
 
-        <div className="grid gap-4 bg-white p-6 rounded-[2.5rem] shadow-sm">
+        <div className="grid gap-4 bg-white dark:bg-slate-800 p-6 rounded-[2.5rem] shadow-sm">
             <div className="group">
-                <label className="block text-xs font-bold text-slate-400 mb-2 ml-1">Brand</label>
-                <input 
-                    type="text" 
-                    value={currentItem.brand || ''} 
+                <label className="block text-footnote font-bold text-slate-400 dark:text-slate-500 mb-2 ml-1">Brand</label>
+                <input
+                    type="text"
+                    value={currentItem.brand || ''}
                     onChange={e => handleUpdateCurrentItem('brand', e.target.value)}
-                    className="w-full px-5 py-4 bg-slate-50 rounded-2xl text-slate-800 font-bold focus:outline-none focus:ring-2 focus:ring-sky-200 transition-all placeholder:text-slate-300"
+                    className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-slate-800 dark:text-slate-50 font-bold focus:outline-none focus:ring-2 focus:ring-sky-200 transition-all placeholder:text-slate-300"
                     placeholder="e.g. Zara"
                 />
             </div>
 
             <div className="group">
-                <label className="block text-xs font-bold text-slate-400 mb-2 ml-1">Description</label>
-                <input 
-                type="text" 
-                value={currentItem.description || ''} 
+                <label className="block text-footnote font-bold text-slate-400 dark:text-slate-500 mb-2 ml-1">Description</label>
+                <input
+                type="text"
+                value={currentItem.description || ''}
                 onChange={e => handleUpdateCurrentItem('description', e.target.value)}
-                className="w-full px-5 py-4 bg-slate-50 rounded-2xl text-slate-800 font-medium focus:outline-none focus:ring-2 focus:ring-sky-200 transition-all placeholder:text-slate-300"
+                className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-slate-800 dark:text-slate-50 font-medium focus:outline-none focus:ring-2 focus:ring-sky-200 transition-all placeholder:text-slate-300"
                 placeholder="Blue T-Shirt"
                 />
             </div>
 
             <div className="flex gap-4">
                 <div className="flex-1">
-                    <label className="block text-xs font-bold text-slate-400 mb-2 ml-1">Size</label>
-                    <input 
-                    type="text" 
-                    value={currentItem.sizeLabel || ''} 
+                    <label className="block text-footnote font-bold text-slate-400 dark:text-slate-500 mb-2 ml-1">Size</label>
+                    <input
+                    type="text"
+                    value={currentItem.sizeLabel || ''}
                     onChange={e => handleUpdateCurrentItem('sizeLabel', e.target.value)}
-                    className="w-full px-5 py-4 bg-slate-50 rounded-2xl text-slate-800 font-bold focus:outline-none focus:ring-2 focus:ring-sky-200 transition-all placeholder:text-slate-300"
+                    className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-slate-800 dark:text-slate-50 font-bold focus:outline-none focus:ring-2 focus:ring-sky-200 transition-all placeholder:text-slate-300"
                     placeholder="4T"
                     />
                 </div>
                 <div className="flex-1">
-                    <label className="block text-xs font-bold text-slate-400 mb-2 ml-1">Color</label>
-                    <input 
-                    type="text" 
-                    value={currentItem.color || ''} 
+                    <label className="block text-footnote font-bold text-slate-400 dark:text-slate-500 mb-2 ml-1">Color</label>
+                    <input
+                    type="text"
+                    value={currentItem.color || ''}
                     onChange={e => handleUpdateCurrentItem('color', e.target.value)}
-                    className="w-full px-5 py-4 bg-slate-50 rounded-2xl text-slate-800 font-bold focus:outline-none focus:ring-2 focus:ring-sky-200 transition-all placeholder:text-slate-300"
+                    className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-slate-800 dark:text-slate-50 font-bold focus:outline-none focus:ring-2 focus:ring-sky-200 transition-all placeholder:text-slate-300"
                     placeholder="Blue"
                     />
                 </div>
             </div>
 
             <div>
-                <label className="block text-xs font-bold text-slate-400 mb-2 ml-1">Category</label>
+                <label className="block text-footnote font-bold text-slate-400 dark:text-slate-500 mb-2 ml-1">Category</label>
                 <div className="relative">
-                    <select 
-                    value={currentItem.category || ''} 
+                    <select
+                    value={currentItem.category || ''}
                     onChange={e => handleUpdateCurrentItem('category', e.target.value)}
-                    className="w-full px-5 py-4 bg-slate-50 rounded-2xl text-slate-800 font-bold focus:outline-none focus:ring-2 focus:ring-sky-200 transition-all appearance-none"
+                    className="w-full px-5 py-4 bg-slate-50 dark:bg-slate-800 rounded-2xl text-slate-800 dark:text-slate-50 font-bold focus:outline-none focus:ring-2 focus:ring-sky-200 transition-all appearance-none"
                     >
                     <option value="">Select...</option>
                     {Object.values(Category).map(c => <option key={c} value={c}>{c}</option>)}
@@ -1029,17 +1071,17 @@ export const AddItem: React.FC = () => {
             </div>
 
             <div>
-            <label className="block text-xs font-bold text-slate-400 mb-2 ml-1">Seasons</label>
+            <label className="block text-footnote font-bold text-slate-400 dark:text-slate-500 mb-2 ml-1">Seasons</label>
             <div className="flex flex-wrap gap-2">
                 {[Season.Spring, Season.Summer, Season.Fall, Season.Winter, Season.All].map(s => (
                 <button
                     key={s}
                     onClick={() => toggleSeason(s)}
                     className={clsx(
-                    "px-4 py-2 rounded-xl text-sm font-bold transition-all shadow-sm",
-                    currentItem.seasons?.includes(s) 
-                        ? "bg-orange-400 text-white shadow-md scale-105"
-                        : "bg-white text-slate-400 hover:bg-slate-100"
+                    "px-4 py-2 rounded-xl text-body font-bold transition-all shadow-sm",
+                    currentItem.seasons?.includes(s)
+                        ? "bg-orange-600 text-white shadow-md scale-105"
+                        : "bg-white dark:bg-slate-800 text-slate-400 dark:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700"
                     )}
                 >
                     {s}
@@ -1052,16 +1094,16 @@ export const AddItem: React.FC = () => {
 
       <div className="mt-8 flex gap-3">
         {currentIndex < reviewItems.length - 1 ? (
-             <button 
+             <button
                 onClick={() => setCurrentIndex(c => c + 1)}
-                className="flex-1 bg-white text-slate-800 font-bold py-5 rounded-full shadow-sm hover:shadow-md transition-all text-lg"
+                className="flex-1 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-50 font-bold py-5 rounded-full shadow-sm hover:shadow-md transition-all text-headline"
              >
                 Next
              </button>
         ) : (
-            <button 
+            <button
                 onClick={handleSaveAll}
-                className="flex-1 bg-sky-400 text-white font-bold py-5 rounded-full shadow-xl hover:shadow-2xl hover:scale-105 transition-all text-lg"
+                className="flex-1 bg-sky-600 text-white font-bold py-5 rounded-full shadow-xl hover:shadow-2xl active:scale-95 transition-all text-headline"
             >
                 Save to Closet
             </button>
